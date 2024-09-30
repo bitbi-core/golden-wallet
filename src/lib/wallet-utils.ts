@@ -158,5 +158,6 @@ export async function listRecentTransactions(wallet: string, count: number, cate
             break;
         }
     }
-    return sents;
+    return Array.from(new Set(sents.map(tx => tx.txid)))
+                .map(txid => sents.find(tx => tx.txid === txid) as ITransaction);
 }

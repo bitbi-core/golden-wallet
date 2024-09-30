@@ -41,14 +41,18 @@
 		//2. load addresses for each label of current wallet
 		//3. get addresses info for each address
 		let newAddrs: IAddressInfo[] = [];
-		const labels = await listLabels(wallet);
-		for (const label of labels) {
-			const a = await loadAddressesForLabel(wallet, label);
-			newAddrs = [...newAddrs, ...a];
+		try {
+			const labels = await listLabels(wallet);
+			for (const label of labels) {
+				const a = await loadAddressesForLabel(wallet, label);
+				newAddrs = [...newAddrs, ...a];
+			}
+			// sort addresses by timestamp decending
+			newAddrs.sort((a, b) => b.timestamp - a.timestamp);
+			addresses = newAddrs;
+		} catch (e) {
+			console.error('Error loading addresses:', e);
 		}
-		// sort addresses by timestamp decending
-		newAddrs.sort((a, b) => b.timestamp - a.timestamp);
-		addresses = newAddrs;
 	}
 
 	async function generateAddress() {

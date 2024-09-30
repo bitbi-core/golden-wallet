@@ -135,6 +135,9 @@
 			<li class={$page.url.pathname === '/mine' ? 'active' : ''}>
 				<a href="/mine"> Mine </a>
 			</li>
+			<li class={$page.url.pathname === '/bridge' ? 'active' : ''}>
+				<a href="/bridge"> Bridge </a>
+			</li>
 		</ul>
 	</nav>
 
@@ -161,6 +164,7 @@
 			{/if}
 		</div>
 		<div class="content">
+			<!-- content area -->
 			<slot></slot>
 		</div>
 	</section>

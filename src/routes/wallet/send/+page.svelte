@@ -148,7 +148,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each sentTransactions as tx (tx.txid)}
+					{#each sentTransactions as tx, index (tx.txid + index)}
 						<tr>
 							<td>
 								<!-- svelte-ignore a11y-invalid-attribute -->

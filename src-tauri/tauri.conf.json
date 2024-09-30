@@ -169,7 +169,7 @@
       }
     ],
     "security": {
-      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-eval' 'unsafe-inline' 'self' tauri:; connect-src http://localhost:9800; connect-src tauri://localhost;"
+      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-eval' 'unsafe-inline' 'self' tauri:; connect-src http://localhost:9800 http://localhost:8000; connect-src tauri://localhost;"
     },
     "bundle": {
       "active": true,
