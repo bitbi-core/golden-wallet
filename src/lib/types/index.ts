@@ -147,3 +147,16 @@ export interface IListUnspentResponse {
   parent_desc: string;
   safe: boolean;
 }
+
+export interface IWrapTransaction {
+  btb_tx_id: string
+  status: string
+  amount: number
+  eth_tx_hash: string | null
+  receiving_address: string
+  exception_details: string
+  exception_count: number
+  minted_wbtb_amount: number | null
+  last_exception_time: string | null
+  create_time: string
+}

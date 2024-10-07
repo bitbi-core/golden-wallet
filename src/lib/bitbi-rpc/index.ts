@@ -45,7 +45,7 @@ const CALL_SPEC = {
     convertToPSBT: 'str',
     createMultiSig: '',
     createPSBT: 'obj',
-    createRawTransaction: 'obj obj',
+    // createRawTransaction: 'obj obj',
     //createWallet: 'str',
     decodePSBT: 'str',
     decodeScript: 'str',
@@ -181,7 +181,7 @@ const CALL_SPEC = {
     signMessageWithPrivKey: 'str str',
     signRawTransaction: '',
     signRawTransactionWithKey: 'str obj',
-    signRawTransactionWithWallet: 'str',
+    // signRawTransactionWithWallet: 'str',
     stop: '',
     submitBlock: 'str',
     submitHeader: 'str',
@@ -516,11 +516,16 @@ class RpcClient {
     }
 
     async createRawTransaction(wallet: string, inputs: unknown[], outputs: unknown) {
-        return await this.rpc({
-            method: 'createrawtransaction',
-            params: [inputs, outputs],
-            id: getRandomId()
-        }, `wallet/${wallet}`);
+        try {
+            return await this.rpc({
+                method: 'createrawtransaction',
+                params: [inputs, outputs],
+                id: getRandomId()
+            }, `wallet/${wallet}`);
+        } catch (e) {
+            console.error("createRawTransaction error:", e)
+            throw e;
+        }
     }
 
     async signRawTransactionWithWallet(wallet: string, rawTxHex: string) {
