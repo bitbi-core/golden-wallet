@@ -40,6 +40,32 @@ export type AddrType = 'legacy' | 'p2sh-segwit' | 'bech32' | 'bech32m';
 
 export type AddrPurpose = 'receive' | 'send';
 
+export interface DescriptorType {
+  desc: string;
+  timestamp: number;
+  active: boolean;
+  internal: boolean;
+  range: [number, number];
+  next?: number;
+  next_index: number;
+}
+
+export interface DescriptorInfo {
+  descriptor: string;
+  checksum: string;
+  isrange: boolean;
+  issolvable: boolean;
+  hasprivatekeys: boolean;
+}
+
+export interface ImportDescriptorItem {
+  desc: string;
+  timestamp: number|"now";
+  active: boolean;
+  internal: boolean;
+  range: [number, number];
+  next_index: number;
+}
 // {
 //   "address": "bc1qqktu6shc7rjzx4txqvlzmkltne2saw8f9c77yy",
 //   "category": "send",
@@ -105,4 +131,19 @@ export interface IBlockchainInfo {
   size_on_disk: number
   pruned: boolean
   warnings: string
+}
+
+export interface IListUnspentResponse {
+  txid: string;
+  vout: number;
+  address: string;
+  label: string;
+  scriptPubKey: string;
+  amount: number;
+  confirmations: number;
+  spendable: boolean;
+  solvable: boolean;
+  desc: string;
+  parent_desc: string;
+  safe: boolean;
 }

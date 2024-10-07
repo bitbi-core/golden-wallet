@@ -41,6 +41,10 @@ export const curWalletInfoStore = derived([curWalletStore, nodeCaughtUpStore], (
 // current blockchain info
 export const curBcInfo = writable({ initialblockdownload: true } as IBlockchainInfo);
 
+export async function refreshWallets() {
+    listWalletDir().then(allWalletsStore.set);
+}
+
 let gNodeLoopCancelled = false;
 async function nodeLoop() {
     let count = 0;

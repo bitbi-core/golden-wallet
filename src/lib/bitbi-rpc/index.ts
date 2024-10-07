@@ -1,4 +1,4 @@
-import type { AddrPurpose, AddrType, IAddressInfo } from '$lib/types';
+import type { AddrPurpose, AddrType, DescriptorInfo, DescriptorType, IAddressInfo, IListUnspentResponse, ImportDescriptorItem } from '$lib/types';
 import { fetch, Body } from '@tauri-apps/api/http';
 type RpcClientOptions = {
     host?: string;
@@ -10,13 +10,26 @@ type RpcClientOptions = {
     rejectUnauthorized?: boolean;
 };
 
-
 type Logger = {
-    info: Function;
-    warn: Function;
-    err: Function;
-    debug: Function;
+    info: (message: string) => void;
+    warn: (message: string) => void;
+    err: (message: string) => void;
+    debug: (message: string) => void;
 };
+
+interface IListUnspentConfig {
+    minconf: number; // 0 Minimum number of confirmations
+    maxconf: number; // 9999999 Maximum number of confirmations
+    addresses: string[]; // "" Address filter
+    include_unsafe: boolean; // false Include unconfirmed UTXOs
+    query_options?: {
+        minimumAmount?: number; // 0 Minimum value of each UTXO in BTB
+        maximumAmount?: number; // unlimited Maximum value of each UTXO in BTB
+        maximumCount?: number; // unlimited Maximum number of UTXOs
+        minimumSumAmount?: number; // unlimited Minimum sum value of all UTXOs in BTB
+        include_immature_coinbase?: boolean; // false Include immature coinbase UTXOs
+    };
+}
 
 const CALL_SPEC = {
     abandonTransaction: 'str',
@@ -78,7 +91,7 @@ const CALL_SPEC = {
     getConnectionCount: '',
     getChainTips: '',
     getChainTxStats: '',
-    getDescriptorInfo: 'str',
+    // getDescriptorInfo: 'str',
     getDifficulty: '',
     getGenerate: '', // deprecated
     getHashesPerSec: '', // deprecated
@@ -97,7 +110,7 @@ const CALL_SPEC = {
     // getNewAddress: 'str str',
     getNodeAddresses: '',
     getPeerInfo: '',
-    getRawChangeAddress: '',
+    // getRawChangeAddress: '',
     getRawMemPool: 'bool',
     getRawTransaction: 'str int',
     getReceivedByAccount: 'str int', // deprecated
@@ -117,7 +130,7 @@ const CALL_SPEC = {
     fundRawTransaction: 'str',
     help: '',
     importAddress: 'str str bool',
-    importDescriptors: 'str',
+    // importDescriptors: 'str',
     importMulti: 'obj obj',
     importPrivKey: 'str str bool',
     importPrunedFunds: 'str, str',
@@ -129,14 +142,14 @@ const CALL_SPEC = {
     listAccounts: 'int',
     listAddressGroupings: '',
     listBanned: '',
-    listDescriptors: '',
+    // listDescriptors: '',
     // listLabels: '',
     listLockUnspent: 'bool',
     listReceivedByAccount: 'int bool',
     listReceivedByAddress: 'int bool',
     listReceivedByLabel: '',
     listSinceBlock: 'str int',
-    listUnspent: 'int int',
+    // listUnspent: 'int int',
     // listWallets: '',
     // loadWallet: 'str',
     lockUnspent: '',
@@ -189,9 +202,6 @@ const CALL_SPEC = {
     walletProcessPSBT: 'str'
 };
 
-function slice(arr: any[], start: number, end: number): any[] {
-    return Array.prototype.slice.call(arr, start, end);
-}
 
 class RpcClient {
     static loggers: { [key: string]: Logger } = {
@@ -209,11 +219,11 @@ class RpcClient {
     user: string;
     pass: string;
     protocol: string;
-    batchedCalls: any;
+    batchedCalls: unknown;
     disableAgent: boolean;
     rejectUnauthorized: boolean;
     log: Logger;
-    httpOptions: any;
+    httpOptions: unknown;
 
     constructor(opts: RpcClientOptions | string) {
         if (typeof opts === 'string') {
@@ -290,7 +300,7 @@ class RpcClient {
             throw new Error('Bitcoin JSON-RPC: Request Error: ' + error.message);
         }
     }
-
+    
     async getNewAddress(wallet: string, label?: string, address_type?: AddrType): Promise<string> {
         const params: string[] = [];
         if (label) {
@@ -421,6 +431,32 @@ class RpcClient {
         }, `wallet/${wallet}`);
     }
 
+    async listDescriptors(wallet: string, isPrivate: boolean = false): Promise<DescriptorType[]> {
+        const resp = await this.rpc({
+            method: 'listdescriptors',
+            params: [isPrivate],
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+        return resp?.descriptors;
+    }
+
+    async getDescriptorInfo(wallet: string, descriptor: string): Promise<DescriptorInfo> {
+        return await this.rpc({
+            method: 'getdescriptorinfo',
+            params: [descriptor],
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
+    async importDescriptors(wallet: string, descriptors: ImportDescriptorItem[]): Promise<string> {
+        const descriptorsJson = JSON.stringify(descriptors);
+        return await this.rpc({
+            method: 'importdescriptors',
+            params: descriptorsJson,
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
     async getAddressInfo(wallet: string, address: string): Promise<IAddressInfo> {
         return await this.rpc({
             method: 'getaddressinfo',
@@ -450,6 +486,47 @@ class RpcClient {
         return await this.rpc({
             method: 'listtransactions',
             params: [label, count, skip, includeWatchOnly],
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
+    async getRawChangeAddress(wallet: string, addressType: string) {
+        return await this.rpc({
+            method: 'getrawchangeaddress',
+            params: [addressType],
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
+
+    async listUnspent(wallet: string, config: IListUnspentConfig): Promise<IListUnspentResponse[]> {
+        // convert config to params
+        const params = [
+            config.minconf || 6, 
+            config.maxconf || 999999999, 
+            config.addresses || "[]", 
+            config.include_unsafe || false, 
+            config.query_options || {},
+        ];
+        return await this.rpc({
+            method: 'listunspent',
+            params: params,
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
+    async createRawTransaction(wallet: string, inputs: unknown[], outputs: unknown) {
+        return await this.rpc({
+            method: 'createrawtransaction',
+            params: [inputs, outputs],
+            id: getRandomId()
+        }, `wallet/${wallet}`);
+    }
+
+    async signRawTransactionWithWallet(wallet: string, rawTxHex: string) {
+        return await this.rpc({
+            method: 'signrawtransactionwithwallet',
+            params: [rawTxHex],
             id: getRandomId()
         }, `wallet/${wallet}`);
     }
@@ -538,5 +615,11 @@ function getRandomId(): number {
 }
 
 generateRPCMethods(RpcClient, CALL_SPEC);
-
+export const gRpcClient = new RpcClient({
+    protocol: "http",
+    host: "localhost",
+    port: 9800,
+    user: "golden",
+    pass: "wallet",
+});
 export default RpcClient;

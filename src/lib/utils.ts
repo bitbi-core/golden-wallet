@@ -326,3 +326,27 @@ export function formatNumber(num: number, frDigits: number = 2) {
         maximumFractionDigits: frDigits,
     });
 }
+
+export function generateRandomBytes(bytesCount: number = 32) {
+    const array = new Uint8Array(bytesCount);
+    if (typeof window !== 'undefined' && window.crypto) {
+      window.crypto.getRandomValues(array);
+    } else {
+        for (let i = 0; i < bytesCount; i++) {
+            array[i] = Math.floor(Math.random() * 256);
+        }
+    }   
+    return array;
+}
+
+export function uint8ArrayToHex(array: Uint8Array) {
+    return Array.from(array).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function stringToHex(str: string) {
+    return uint8ArrayToHex(new TextEncoder().encode(str));
+}
+
+export function hexToString(hex: string) {
+    return new TextDecoder().decode(new Uint8Array(hex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))));
+}
