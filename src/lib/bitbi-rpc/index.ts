@@ -449,10 +449,10 @@ class RpcClient {
     }
 
     async importDescriptors(wallet: string, descriptors: ImportDescriptorItem[]): Promise<string> {
-        const descriptorsJson = JSON.stringify(descriptors);
+        // Remove the JSON.stringify() call
         return await this.rpc({
             method: 'importdescriptors',
-            params: descriptorsJson,
+            params: [descriptors], // Pass the array directly
             id: getRandomId()
         }, `wallet/${wallet}`);
     }

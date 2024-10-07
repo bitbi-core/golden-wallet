@@ -43,9 +43,9 @@ export interface DescriptorType {
   timestamp: number;
   active: boolean;
   internal: boolean;
-  range: [number, number];
+  range?: [number, number];
   next?: number;
-  next_index: number;
+  next_index?: number;
 }
 
 export interface DescriptorInfo {
@@ -61,8 +61,8 @@ export interface ImportDescriptorItem {
   timestamp: number|"now";
   active: boolean;
   internal: boolean;
-  range: [number, number];
-  next_index: number;
+  range?: [number, number];
+  next_index?: number;
 }
 // {
 //   "address": "bc1qqktu6shc7rjzx4txqvlzmkltne2saw8f9c77yy",

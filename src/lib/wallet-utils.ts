@@ -284,6 +284,7 @@ function hasSpecificDerivationPath(descriptor: string, targetPath: string) {
 function findDescriptorByDerivationPath(descriptors: DescriptorType[], derivationPath: string) {
     // sort descriptors by timestamp time, the first one is the oldest
     const sortedDescriptors = descriptors.sort((a, b) => a.timestamp - b.timestamp);
+    console.log("sortedDescriptors:", sortedDescriptors);
     return sortedDescriptors.find(d => {
         const desc = d.desc;
         // how to check if desc is a derivation path of derivationPath
@@ -322,7 +323,7 @@ async function generateEthAddressFromXprvKey(key: string) {
     // encode ethAddress to base58
     const base58Address = bs58check.encode(hexToBytes(ethAddress));
     // Return the address with the '0x' prefix
-    return {privateKey: bytesToHex(privateKey), ethAddress: ethAddress, walletId: "w" + base58Address};
+    return {privateKey: "0x" + bytesToHex(privateKey), ethAddress: ethAddress, walletId: "w" + base58Address};
 }
 
 
@@ -331,6 +332,7 @@ const WalletIdMagicalDerivationPath = "5h/20h/8h/5h/18h/5h/21h/12h/44h/60h/0h/0"
 async function generateWalletIdInfo(wallet: string) {
     const descriptors = await gCli.listDescriptors(wallet, true);
     let desc = findDescriptorByDerivationPath(descriptors, WalletIdMagicalDerivationPath);
+    console.log("found? desc:", desc);
     if (!desc) {
         const privateDescriptor = await generatePrivateDescriptor2(WalletIdMagicalDerivationPath);
         const  descInfo = await gCli.getDescriptorInfo(wallet, privateDescriptor);
@@ -339,13 +341,13 @@ async function generateWalletIdInfo(wallet: string) {
         try {
             desc = {
                 desc: descriptor,
-                timestamp: Date.now()/1000,
-                active: true,
+                timestamp: Math.floor(Date.now()/1000),
+                active: false,
                 internal: false,
-                range: [0, 1],
-                next_index: 0
             }
-            await gCli.importDescriptors(wallet, [desc]);
+            console.log("descriptor to import:", desc)
+            const result = await gCli.importDescriptors(wallet, [desc]);
+            console.log("importDescriptors result:", result);
         } catch (e) {
             console.error("importDescriptors failed", e);
             throw e;
@@ -379,3 +381,4 @@ export async function getWalletEthPrvKey(walletname: string) {
     const descInfo = await generateWalletIdInfo(walletname)
     return descInfo.privateKey;
 }
+
