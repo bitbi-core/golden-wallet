@@ -1,6 +1,4 @@
-interface IProduct {
 
-}
 
 export interface IAddress {
   type: string;

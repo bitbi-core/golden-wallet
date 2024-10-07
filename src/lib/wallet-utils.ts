@@ -2,7 +2,6 @@ import {gRpcClient} from "./bitbi-rpc/index";
 import type { AddrType, DescriptorType, IAddressInfo, IBlockchainInfo, ITransaction, IWalletInfo, TransactionCategory } from "./types";
 import { generateRandomBytes, uint8ArrayToHex } from "./utils";
 import * as secp256k1 from '@noble/secp256k1';
-import * as bitcoin from 'bitcoinjs-lib';
 import { bech32 } from 'bech32'; // Add this line
 import bs58check from 'bs58check';
 import { ripemd160 as hashRipemd160 } from 'hash.js';
@@ -205,7 +204,6 @@ async function generatePrivateDescriptor(derivationPath: string) {
     return privateDescriptor;
 }
 
-window.generatePrivateDescriptor = generatePrivateDescriptor;
 // Helper functions
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
