@@ -158,3 +158,19 @@ export interface IWrapTransaction {
   last_exception_time: string | null
   create_time: string
 }
+
+export interface IUnwrapTransaction {
+  id: number
+  eth_tx_hash: string | null
+  wallet_id: string | null
+  btb_receiving_address: string | null
+  amount: number | null
+  status: string
+  btb_tx_id: string | null
+  eth_sender: string | null
+  sent_btb_amount: number | null
+  exception_details: string
+  exception_count: number
+  last_exception_time: string | null
+  create_time: string
+}

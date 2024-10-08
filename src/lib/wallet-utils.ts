@@ -8,6 +8,9 @@ import { ripemd160 as hashRipemd160 } from 'hash.js';
 import ecc from '@bitcoinerlab/secp256k1';
 import { keccak256 } from 'ethereum-cryptography/keccak';
 import { hexToBytes, bytesToHex } from 'ethereum-cryptography/utils';
+import Web3 from 'web3';
+
+const web3 = new Web3();
 
 import { BIP32Factory } from 'bip32';
 const BIP32 = BIP32Factory(ecc);
@@ -178,59 +181,11 @@ export async function listRecentTransactions(wallet: string, count: number, cate
 }
 
 
-async function generatePrivateDescriptor(derivationPath: string) {
-    const privKey = generateRandomBytes(32);
-    const keyPair = createECPair(privKey);
-    const publicKey = keyPair.publicKey;
-
-    // Create a fingerprint (first 4 bytes of the key hash)
-    // const identifier = await hash160(publicKey);
-    // const fingerprint = uint8ArrayToHex(identifier.slice(0, 4));
-
-    // Convert private key to WIF format
-    const wif = await toWIF(privKey);
-
-    // Use mainnet derivation path
-    // const derivationPath = "84'/0'/0'/0/0";
-
-    // Create the private descriptor
-    const privateDescriptor = `wpkh(${wif}/${derivationPath})`;
-    console.log("privateDescriptor:", privateDescriptor);
-
-    // Create a P2WPKH (native SegWit) address
-    const p2wpkhAddress = await createP2WPKHAddress(publicKey);
-    console.log("p2wpkh address:", p2wpkhAddress);
-
-    return privateDescriptor;
-}
-
 // Helper functions
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     return new Uint8Array(hashBuffer);
-}
-
-async function ripemd160(data: Uint8Array): Promise<Uint8Array> {
-    const hash = hashRipemd160().update(data).digest();
-    return new Uint8Array(hash);
-}
-
-async function hash160(buffer: Uint8Array): Promise<Uint8Array> {
-    const sha256Hash = await sha256(buffer);
-    return await ripemd160(sha256Hash);
-}
-
-async function createP2WPKHAddress(publicKey: Uint8Array): Promise<string> {
-    const pubKeyHash = await hash160(publicKey);
-    const words = bech32.toWords(pubKeyHash);
-    return bech32.encode('bc', words, 'bech32');
-}
-
-async function toWIF(privateKey: Uint8Array): Promise<string> {
-    const version = 0x80; // Mainnet private key version
-    const extendedKey = new Uint8Array([version, ...privateKey, 0x01]); // 0x01 for compressed public key
-    return bs58check.encode(extendedKey);
 }
 
 
@@ -317,13 +272,21 @@ async function getEthAddressFromPrivateKey(privateKey: Uint8Array) {
     return '0x' + bytesToHex(address);
 }
 
+function toEthChecksumAddress(address: string): string {
+    return web3.utils.toChecksumAddress(address);
+}
+
 async function generateEthAddressFromXprvKey(key: string) {
-    const privateKey = await generateEthPrivateKeyFromXprvKey(key);
-    const ethAddress = await getEthAddressFromPrivateKey(privateKey);
+    const prvKeyBytes = await generateEthPrivateKeyFromXprvKey(key);
+    const ethAddress = await getEthAddressFromPrivateKey(prvKeyBytes);
     // encode ethAddress to base58
     const base58Address = bs58check.encode(hexToBytes(ethAddress));
+    // convert ethAddress to checksum address
+    const checksumAddress = toEthChecksumAddress(ethAddress);
+    const privateKey = "0x" + bytesToHex(prvKeyBytes);
+    console.log("checksumAddress:", checksumAddress, "ethAddress:", ethAddress, "privateKey:", privateKey);
     // Return the address with the '0x' prefix
-    return {privateKey: "0x" + bytesToHex(privateKey), ethAddress: ethAddress, walletId: "w" + base58Address};
+    return {privateKey, ethAddress: checksumAddress, walletId: "w" + base58Address};
 }
 
 
@@ -381,4 +344,3 @@ export async function getWalletEthPrvKey(walletname: string) {
     const descInfo = await generateWalletIdInfo(walletname)
     return descInfo.privateKey;
 }
-
