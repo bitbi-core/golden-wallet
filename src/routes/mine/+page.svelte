@@ -59,6 +59,7 @@
 	async function stopMining() {
 		isRunning = false;
 		popupMessage = 'Stopping mining...';
+		await unscheduleMining();
 		await stopMiner();
 		popupMessage = 'Mining stopped!';
     	setTimeout(() => (popupMessage = ''), 2000);
