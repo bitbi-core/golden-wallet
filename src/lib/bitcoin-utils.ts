@@ -21,7 +21,7 @@ const DERIVATION_PATHS = {
     P2SH: "m/49'/0'/0'",       // Nested SegWit
     P2WPKH: "m/84'/0'/0'",     // Native SegWit
     P2TR: "m/86'/0'/0'",       // Taproot
-    WALLET_ID: WALLET_ID_PATH   // Special path for wallet ID
+    // WALLET_ID: WALLET_ID_PATH   // Special path for wallet ID
 };
 
 function createDescriptor(type: string, masterFingerprint: string, path: string, xprv: string): BitcoinDescriptor {
@@ -50,11 +50,11 @@ function createDescriptor(type: string, masterFingerprint: string, path: string,
             receiveDescriptor = `tr(${originInfo}${xprv}/0/*)`;
             changeDescriptor = `tr(${originInfo}${xprv}/1/*)`;
             break;
-        case 'WALLET_ID':
-            // For wallet ID, we use a single P2WPKH address without derivation paths
-            receiveDescriptor = `wpkh(${originInfo}${xprv})`;
-            changeDescriptor = receiveDescriptor; // Same as receive for wallet ID
-            break;
+        // case 'WALLET_ID':
+        //     // For wallet ID, we use a single P2WPKH address without derivation paths
+        //     receiveDescriptor = `wpkh(${originInfo}${xprv})`;
+        //     changeDescriptor = receiveDescriptor; // Same as receive for wallet ID
+        //     break;
     }
 
     return {

@@ -1,7 +1,7 @@
 import { gRpcClient, type RPCError } from './bitbi-rpc';
 import type { BitcoinDescriptor } from './bitcoin-utils';
 import { DEFAULT_WALLET_NAME } from './config';
-import type { ImportDescriptorItem, DescriptorInfo } from './types';
+import type { ImportDescriptorItem, ScanProgress } from './types';
 
 export class WalletManager {
     private static readonly WALLET_NAME = DEFAULT_WALLET_NAME;
@@ -30,6 +30,73 @@ export class WalletManager {
         }
     }
 
+    static async isWalletScanning(): Promise<{ 
+        scanning: boolean; 
+        progress?: ScanProgress;
+        blockchainInfo?: {
+            initialBlockDownload: boolean;
+            progress: number;
+            blocks: number;
+            headers: number;
+        };
+    }> {
+        try {
+            const [scanningInfo, bcInfo] = await Promise.all([
+                gRpcClient.getWalletInfo(this.WALLET_NAME),
+                gRpcClient.getBlockchainInfo()
+            ]);
+
+            return {
+                scanning: scanningInfo.scanning?.duration > 0,
+                progress: scanningInfo.scanning,
+                blockchainInfo: {
+                    initialBlockDownload: bcInfo.initialblockdownload,
+                    progress: bcInfo.verificationprogress,
+                    blocks: bcInfo.blocks,
+                    headers: bcInfo.headers
+                }
+            };
+        } catch (error) {
+            console.error('Failed to check wallet scanning status:', error);
+            return { scanning: false };
+        }
+    }
+
+    static async waitForScanComplete(
+        onProgress?: (progress: ScanProgress, blockchainInfo?: { 
+            initialBlockDownload: boolean;
+            progress: number;
+            blocks: number;
+            headers: number;
+        }) => void,
+        checkInterval = 2000,
+        maxWaitTime = 30000 // Maximum time to wait if blockchain is syncing
+    ): Promise<boolean> {
+        const startTime = Date.now();
+        
+        while (true) {
+            const { scanning, progress, blockchainInfo } = await this.isWalletScanning();
+            
+            // If blockchain is syncing and we've waited long enough, proceed anyway
+            const timeElapsed = Date.now() - startTime;
+            if (blockchainInfo?.initialBlockDownload && timeElapsed > maxWaitTime) {
+                console.log("Blockchain still syncing, proceeding after timeout");
+                return true;
+            }
+            
+            // If not scanning and blockchain is synced, we're done
+            if (!scanning && !blockchainInfo?.initialBlockDownload) {
+                return true;
+            }
+
+            if (progress && onProgress) {
+                onProgress(progress, blockchainInfo);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+        }
+    }
+
     static async getDescriptorChecksum(descriptor: string): Promise<string> {
         try {
             const info = await gRpcClient.getDescriptorInfo(this.WALLET_NAME, descriptor);
@@ -40,25 +107,102 @@ export class WalletManager {
         }
     }
 
+    static async importDescriptorsWithScanCheck(
+        descriptors: BitcoinDescriptor[],
+        onScanProgress?: (progress: ScanProgress, blockchainInfo?: {
+            initialBlockDownload: boolean;
+            progress: number;
+            blocks: number;
+            headers: number;
+        }) => void,
+        maxRetries = 3,
+        initialDelay = 2000
+    ): Promise<boolean> {
+        let attempt = 0;
+        let progressMonitorInterval: NodeJS.Timeout | null = null;
+
+        // Start monitoring progress in the background
+        if (onScanProgress) {
+            progressMonitorInterval = setInterval(async () => {
+                const { scanning, progress, blockchainInfo } = await this.isWalletScanning();
+                if (scanning && progress) {
+                    onScanProgress(progress, blockchainInfo);
+                }
+            }, 2000);
+        }
+
+        try {
+            while (true) { // Keep trying until success or max retries on actual import attempts
+                try {
+                    // Check if wallet is currently scanning
+                    const { scanning, progress, blockchainInfo } = await this.isWalletScanning();
+                    
+                    if (scanning) {
+                        // If scanning, just wait without counting as a retry
+                        console.log("Wallet is scanning, waiting for completion...");
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        continue; // Continue without incrementing attempt counter
+                    }
+                    
+                    // Import descriptors when not scanning
+                    const result = await this.importDescriptors(descriptors);
+                    console.log("importDescriptorsWithScanCheck result:", result);
+                    
+                    if (result) {
+                        // If blockchain is syncing, notify user that scanning will continue
+                        if (blockchainInfo?.initialBlockDownload && onScanProgress) {
+                            onScanProgress(
+                                { progress: 0 }, // Reset progress for new scan
+                                blockchainInfo
+                            );
+                        }
+                        return true;
+                    }
+
+                    // Only increment attempt counter when import actually fails (not when scanning)
+                    attempt++;
+                    if (attempt >= maxRetries) {
+                        console.log("Max import attempts reached:", attempt);
+                        return false;
+                    }
+                    
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error(`Import attempt failed:`, errorMessage);
+                    
+                    // If error is due to active rescan, wait without counting as retry
+                    if (errorMessage.includes("Wallet is currently rescanning")) {
+                        console.log("Wallet is rescanning, waiting...");
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        continue; // Continue without incrementing attempt counter
+                    } else {
+                        // For other errors, count as attempt and use exponential backoff
+                        attempt++;
+                        if (attempt >= maxRetries) {
+                            console.log("Max import attempts reached after error:", attempt);
+                            return false;
+                        }
+                        const delay = initialDelay * Math.pow(2, attempt);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                }
+            }
+        } finally {
+            // Clean up progress monitor
+            if (progressMonitorInterval) {
+                clearInterval(progressMonitorInterval);
+            }
+        }
+    }
+
     static async importDescriptors(descriptors: BitcoinDescriptor[]): Promise<boolean> {
         try {
+            console.log("importDescriptors descriptors:", descriptors);
             // First, get existing descriptors
             const existingDescriptors = await gRpcClient.listDescriptors(this.WALLET_NAME, true);
-            
-            // Deactivate all existing descriptors that don't match our derived ones
-            const deactivateRequests = existingDescriptors.map(desc => ({
-                desc: desc.desc,
-                active: false,
-                internal: desc.internal,
-                timestamp: "now"
-            }));
-            console.log("deactivateRequests: ", deactivateRequests);
-            if (deactivateRequests.length > 0) {
-                await gRpcClient.importDescriptors(this.WALLET_NAME, deactivateRequests as ImportDescriptorItem[]);
-            }
-
+            console.log("existing descriptors:", existingDescriptors);
             // Add checksums to descriptors while keeping private keys
-            const importRequests = await Promise.all(descriptors.flatMap(async desc => {
+            const importRequestsArray = await Promise.all(descriptors.flatMap(async desc => {
                 const receiveChecksum = await this.getDescriptorChecksum(desc.receiveDescriptor);
                 const changeChecksum = await this.getDescriptorChecksum(desc.changeDescriptor);
                 
@@ -67,19 +211,48 @@ export class WalletManager {
                         desc: desc.receiveDescriptor + receiveChecksum,
                         active: true,
                         internal: false,
-                        timestamp: "now"
+                        timestamp: 1720000000,
+                        range: [0, 2000]
                     },
                     {
                         desc: desc.changeDescriptor + changeChecksum,
                         active: true,
                         internal: true,
-                        timestamp: "now"
+                        timestamp: 1720000000,
+                        range: [0, 2000]
                     }
                 ];
             }));
+            const importRequests = importRequestsArray.flat();
+            // Create a set of new descriptor strings for comparison
+            const newDescriptorSet = new Set(importRequests.map(desc => desc.desc));
 
-            console.log("importRequests: ", importRequests.flat());
-            await gRpcClient.importDescriptors(this.WALLET_NAME, importRequests.flat() as ImportDescriptorItem[]);
+            // Deactivate only descriptors that are not in the new set
+            const deactivateRequests = existingDescriptors
+                .filter(desc => !newDescriptorSet.has(desc.desc) && desc.active)
+                .map(desc => ({
+                    desc: desc.desc,
+                    active: false,
+                    internal: desc.internal,
+                    timestamp: 1720000000
+                }));
+
+            if (deactivateRequests.length > 0) {
+                console.log("Deactivating descriptors:", deactivateRequests);
+                console.log("Deactivating newDescriptorSet descriptors:", newDescriptorSet);
+                await gRpcClient.importDescriptors(this.WALLET_NAME, deactivateRequests as ImportDescriptorItem[]);
+            }
+
+            //filter out the descriptors that are already in the wallet
+            const needToImport = importRequests.filter(desc => {
+                return !existingDescriptors.find(existing => existing.desc === desc.desc 
+                    && existing.active === desc.active 
+                    && existing.internal === desc.internal 
+                    && existing.timestamp === desc.timestamp);
+            });
+            console.log("need to import descriptors:", needToImport);
+            const result = await gRpcClient.importDescriptors(this.WALLET_NAME, needToImport as ImportDescriptorItem[]);
+            console.log("importDescriptors result:", result);
             return true;
         } catch (error) {
             console.error('Failed to import descriptors:', error);
@@ -87,3 +260,4 @@ export class WalletManager {
         }
     }
 } 
+

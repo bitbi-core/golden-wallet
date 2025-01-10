@@ -23,15 +23,15 @@
 			pendingBalance = wInfo.unconfirmed_balance || 0;
 			immatureBalance = wInfo.immature_balance || 0;
 			totalBalance = availableBalance + pendingBalance + immatureBalance;
-			if (totalBalance > 0) {
-				consolidateAllUtxos($curWalletStore).then(count => {
-					console.log("consolidation count:", count);
-				}).catch(err => {
-					console.error("consolidation error:", err);
-				}).finally(() => {
-					console.log("consolidation complete");
-				});
-			}
+			// if (totalBalance > 0) {
+			// 	consolidateAllUtxos($curWalletStore).then(count => {
+			// 		console.log("consolidation count:", count);
+			// 	}).catch(err => {
+			// 		console.error("consolidation error:", err);
+			// 	}).finally(() => {
+			// 		console.log("consolidation complete");
+			// 	});
+			// }
 		}
 	}
 

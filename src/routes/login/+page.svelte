@@ -17,7 +17,12 @@
 
         try {
             const success = await walletStore.unlockWallet(password);
+            console.log("Login success:", success);
             if (success) {
+                // Clear any error states
+                error = null;
+                serverError = undefined;
+                // Navigate to wallet page
                 goto('/wallet');
             }
         } catch (e) {
@@ -32,8 +37,20 @@
     }
 </script>
 
-{#if isLoading}
-    <LoadingOverlay message="Unlocking wallet..." />
+{#if isLoading || $walletStore.isScanning}
+    <div class="overlay">
+        <div class="overlay-content">
+            <h2>{$walletStore.serverError?.message || 'Unlocking wallet...'}</h2>
+            {#if $walletStore.serverError?.tips}
+                <div class="progress-info">
+                    {#each $walletStore.serverError.tips as tip}
+                        <p>{tip}</p>
+                    {/each}
+                </div>
+            {/if}
+            <div class="spinner"></div>
+        </div>
+    </div>
 {/if}
 
 <div class="container">
@@ -70,8 +87,8 @@
             </div>
         {/if}
 
-        <button type="submit" disabled={isLoading}>
-            {isLoading ? 'Unlocking...' : 'Unlock Wallet'}
+        <button type="submit" disabled={isLoading || $walletStore.isScanning}>
+            {isLoading || $walletStore.isScanning ? 'Processing...' : 'Unlock Wallet'}
         </button>
 
         {#if showRestoreOption}
@@ -86,6 +103,59 @@
 </div>
 
 <style>
+    .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .overlay-content {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 8px;
+        text-align: center;
+        max-width: 80%;
+        width: 500px;
+    }
+
+    .overlay-content h2 {
+        margin: 0 0 1rem 0;
+        color: #333;
+    }
+
+    .progress-info {
+        margin: 1rem 0;
+        text-align: left;
+    }
+
+    .progress-info p {
+        margin: 0.5rem 0;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .spinner {
+        margin: 1rem auto;
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #4CAF50;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
     .container {
         max-width: 480px;
         margin: 40px auto;

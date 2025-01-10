@@ -8,7 +8,7 @@ import { BRIDGE_SERVER_URL, DEFAULT_WALLET_NAME } from '$lib/config';
 import { validateMnemonic } from '../wallet-key-utils';
 import { WalletManager } from '../wallet-manager';
 import { gRpcClient } from '../bitbi-rpc/index';
-import type { ScanProgress } from '../bitbi-rpc/index';
+import type { ScanProgress } from '../types';
 
 interface ServerError {
     message: string;
@@ -60,11 +60,61 @@ function createWalletStore() {
         }, 60000);
     }
 
+    function handleScanProgress(
+        progress: ScanProgress,
+        blockchainInfo?: {
+            initialBlockDownload: boolean;
+            progress: number;
+            blocks: number;
+            headers: number;
+        }
+    ) {
+        const tips: string[] = [];
+        
+        // Add blockchain sync status if available
+        if (blockchainInfo) {
+            if (blockchainInfo.initialBlockDownload) {
+                // Calculate sync progress based on blocks/headers ratio
+                const syncProgress = blockchainInfo.headers > 0 
+                    ? (blockchainInfo.blocks / blockchainInfo.headers) * 100 
+                    : 0;
+                
+                tips.push(`Blockchain syncing: ${syncProgress.toFixed(1)}%`);
+                tips.push(`Blocks: ${blockchainInfo.blocks.toLocaleString()}/${blockchainInfo.headers.toLocaleString()}`);
+            }
+        }
+        
+        // Add wallet scanning progress
+        tips.push(`Wallet scan: ${(progress.progress * 100).toFixed(1)}%`);
+        
+        if (progress.duration) {
+            tips.push(`Scan duration: ${Math.round(progress.duration)}s`);
+        }
+        
+        tips.push('Please wait while we process your wallet');
+        
+        if (blockchainInfo?.initialBlockDownload) {
+            tips.push('Note: Initial blockchain download in progress');
+            tips.push('The wallet will continue scanning as new blocks arrive');
+        }
+
+        update(state => ({
+            ...state,
+            isScanning: true,
+            scanProgress: progress,
+            serverError: {
+                message: blockchainInfo?.initialBlockDownload 
+                    ? 'Syncing blockchain and scanning wallet...'
+                    : 'Scanning wallet...',
+                tips
+            }
+        }));
+    }
+
     async function initializeWallet(password: string, mnemonic?: string): Promise<boolean> {
         update(state => ({ ...state, isLoading: true, error: null }));
         try {
             const walletKeys = mnemonic ? deriveWalletKeys(mnemonic) : generateNewWallet();
-            console.log('walletKeys', walletKeys);
             
             // Initialize core wallet first
             const walletInitialized = await WalletManager.initializeWallet();
@@ -84,16 +134,26 @@ function createWalletStore() {
             }
             
             const { blindedKey } = await response.json();
-            console.log("blindedKey: ", blindedKey);
             const encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
             
-            // Derive and import descriptors
+            // Derive and import descriptors with scan check
             const descriptors = deriveDescriptors(walletKeys.masterPrivateKey, walletKeys.masterPublicKey);
-            console.log("descriptors: ", descriptors);
-            const descriptorsImported = await WalletManager.importDescriptors(descriptors);
+            const descriptorsImported = await WalletManager.importDescriptorsWithScanCheck(
+                descriptors,
+                handleScanProgress
+            );
+            
             if (!descriptorsImported) {
                 throw new Error('Failed to import descriptors');
             }
+
+            // Clear scanning state after successful import
+            update(state => ({
+                ...state,
+                isScanning: false,
+                scanProgress: undefined,
+                serverError: undefined
+            }));
 
             await storeWalletData(walletKeys, encryptionKey);
             
@@ -127,7 +187,9 @@ function createWalletStore() {
             update(state => ({
                 ...state,
                 isLoading: false,
-                error: errorMessage
+                error: errorMessage,
+                isScanning: false,
+                scanProgress: undefined
             }));
             return false;
         }
@@ -174,67 +236,156 @@ function createWalletStore() {
                     }));
                     return false;
                 }
-                
-                if (result) {
-                    console.log("debug: new descriptors: ", result.bitcoinData.descriptors);
-                    // Re-import descriptors on unlock
-                    const descriptorsImported = await WalletManager.importDescriptors(result.bitcoinData.descriptors);
-                    if (!descriptorsImported) {
-                        throw new Error('Failed to import descriptors');
-                    }
-                }
 
+                let retryCount = 0;
+                const maxRetries = 10; // Try up to 10 times
+                const retryInterval = 10000; // 10 seconds between retries
+                let retryTimeout: NodeJS.Timeout | null = null;
+
+                const attemptImport = async (): Promise<boolean> => {
+                    try {
+                        const descriptorsImported = await WalletManager.importDescriptorsWithScanCheck(
+                            result.bitcoinData.descriptors,
+                            handleScanProgress
+                        );
+                        console.log("unlockWallet attemptImport descriptorsImported: ", descriptorsImported);
+                        if (descriptorsImported) {
+                            // Success - clear retry timeout and update state
+                            if (retryTimeout) {
+                                clearTimeout(retryTimeout);
+                            }
+                            update(state => ({
+                                ...state,
+                                isLocked: false,
+                                isLoading: false,
+                                walletData: result.walletKeys,
+                                bitcoinData: result.bitcoinData,
+                                error: null,
+                                failedAttempts: 0,
+                                isScanning: false,
+                                scanProgress: undefined,
+                                serverError: undefined
+                            }));
+
+                            // Start activity tracking
+                            updateLastActivity();
+                            startActivityTracking();
+                            
+                            return true;
+                        }
+
+                        // Import failed but we can retry
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            update(state => ({
+                                ...state,
+                                isLoading: true,
+                                error: 'Waiting for wallet scan to complete',
+                                serverError: {
+                                    message: 'Wallet Import Pending',
+                                    tips: [
+                                        'The wallet is currently being processed',
+                                        `Automatic retry in ${retryInterval/1000} seconds (Attempt ${retryCount}/${maxRetries})`,
+                                        'Please wait while we complete the import',
+                                        'This delay is normal during initial blockchain sync'
+                                    ]
+                                }
+                            }));
+                            
+                            // Schedule next retry
+                            retryTimeout = setTimeout(() => {
+                                attemptImport();
+                            }, retryInterval);
+                            return false;
+                        }
+
+                        // Max retries reached
+                        update(state => ({
+                            ...state,
+                            isLoading: false,
+                            error: 'Failed to import wallet descriptors after multiple attempts',
+                            serverError: {
+                                message: 'Wallet Import Failed',
+                                tips: [
+                                    'Maximum retry attempts reached',
+                                    'The wallet is still processing previous operations',
+                                    'Please try again in a few minutes',
+                                    'If the problem persists, try restarting the application'
+                                ]
+                            }
+                        }));
+                        return false;
+                    } catch (error) {
+                        const errorMessage = error instanceof Error ? error.message : String(error);
+                        
+                        // If it's a rescan error and we haven't hit max retries, schedule another retry
+                        if (errorMessage.includes("Wallet is currently rescanning") && retryCount < maxRetries) {
+                            retryCount++;
+                            update(state => ({
+                                ...state,
+                                isLoading: true,
+                                error: 'Waiting for wallet scan',
+                                serverError: {
+                                    message: 'Wallet Scan in Progress',
+                                    tips: [
+                                        `Automatic retry in ${retryInterval/1000} seconds (Attempt ${retryCount}/${maxRetries})`,
+                                        'The wallet is scanning previous transactions',
+                                        'This is normal during initial setup or after a long period of inactivity',
+                                        'Please wait while the scan completes'
+                                    ]
+                                }
+                            }));
+                            
+                            // Schedule next retry
+                            retryTimeout = setTimeout(() => {
+                                attemptImport();
+                            }, retryInterval);
+                            return false;
+                        }
+
+                        throw error; // Re-throw other errors
+                    }
+                };
+
+                const importSuccess = await attemptImport();
+                return importSuccess;
+
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+                
                 update(state => ({
                     ...state,
-                    isLocked: false,
                     isLoading: false,
-                    walletData: result.walletKeys,
-                    bitcoinData: result.bitcoinData,
-                    error: null,
-                    failedAttempts: 0
-                }));
-                
-                updateLastActivity();
-                startActivityTracking();
-                
-                return true;
-            } catch (error) {
-                console.log("unlockWallet error: ", error);
-                // Handle server communication errors specifically
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                console.log("unlockWallet errorMessage: ", errorMessage);
-                if (errorMessage === 'Server communication error' || errorMessage === 'Load failed') {
-                    console.log("unlockWallet update errorMessage: ", errorMessage);
-                    update(state => ({
-                        ...state,
-                        isLoading: false,
-                        error: 'Unable to connect to the server. Please check your connection and try again.',
-                        serverError: {
-                            message: 'Server connection failed',
-                            tips: [
+                    error: errorMessage,
+                    isScanning: false,
+                    scanProgress: undefined,
+                    serverError: {
+                        message: 'Wallet Operation Failed',
+                        tips: errorMessage.includes('Wallet is currently rescanning')
+                            ? [
+                                'The wallet is currently being processed',
+                                'Please wait for the scanning to complete',
+                                'This may take a few minutes',
+                                'Try again once the scanning is finished'
+                              ]
+                            : [
                                 'Check your internet connection',
                                 'Make sure the server is running',
                                 'Try again in a few moments',
                                 'If the problem persists, contact support'
-                            ]
-                        }
-                    }));
-                } else {
-                    update(state => ({
-                        ...state,
-                        isLoading: false,
-                        error: errorMessage
-                    }));
-                }
+                              ]
+                    }
+                }));
                 return false;
             }
-
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             update(state => ({
                 ...state,
                 isLoading: false,
-                error: errorMessage
+                error: errorMessage,
+                isScanning: false,
+                scanProgress: undefined
             }));
             return false;
         }

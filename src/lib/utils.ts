@@ -184,9 +184,10 @@ async function runBitbi(nodeDataDirPath: string) {
         `-rpcpassword=wallet`,
         `-datadir=${nodeDataDirPath}/data`,
         `-rpcworkqueue=32`,
+        `-blockfilterindex=1`,
         `-reindex=${reindex ? '1' : '0'}`,
-    ], { encoding: "utf-8" });
-    console.log("runBitbi begin spawn command");
+    ], { env: { "PATH": "%PATH%;.\\resources" }, encoding: "utf-8" });
+    console.log("runBitbi begin spawn command with reindex:", reindex);
     return await command.spawn();
 }
 function generateUniqueId(): string {
