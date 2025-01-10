@@ -206,20 +206,23 @@ export class WalletManager {
                 const receiveChecksum = await this.getDescriptorChecksum(desc.receiveDescriptor);
                 const changeChecksum = await this.getDescriptorChecksum(desc.changeDescriptor);
                 
+                // Check if descriptors are ranged (contain '/*' at the derivation path end)
+                const isRanged = desc.receiveDescriptor.includes('/*');
+                
                 return [
                     {
                         desc: desc.receiveDescriptor + receiveChecksum,
                         active: true,
                         internal: false,
                         timestamp: 1720000000,
-                        range: [0, 2000]
+                        ...(isRanged && { range: [0, 2000] })
                     },
                     {
                         desc: desc.changeDescriptor + changeChecksum,
                         active: true,
                         internal: true,
                         timestamp: 1720000000,
-                        range: [0, 2000]
+                        ...(isRanged && { range: [0, 2000] })
                     }
                 ];
             }));

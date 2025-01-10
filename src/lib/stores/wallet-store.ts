@@ -199,9 +199,6 @@ function createWalletStore() {
     const MAX_PASSWORD_ATTEMPTS = 3;
 
     async function unlockWallet(password: string): Promise<boolean> {
-        let currentState: WalletState | undefined;
-        subscribe(state => { currentState = state })();
-
         update(state => ({ ...state, isLoading: true, error: null, serverError: undefined }));
         
         try {
@@ -211,181 +208,90 @@ function createWalletStore() {
                 throw new Error('Failed to initialize core wallet');
             }
 
-            try {
-                const clientHmac = await generateClientHmac(password);
-                const response = await fetch(`${BRIDGE_SERVER_URL}/wallet/blind-key`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientHmac })
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Server communication error');
-                }
-                
-                const { blindedKey } = await response.json();
-                const encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
-                
-                const result = await retrieveWalletData(encryptionKey);
-                if (!result) {
-                    update(state => ({
-                        ...state,
-                        isLoading: false,
-                        failedAttempts: state.failedAttempts + 1,
-                        error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`
-                    }));
-                    return false;
-                }
-
-                let retryCount = 0;
-                const maxRetries = 10; // Try up to 10 times
-                const retryInterval = 10000; // 10 seconds between retries
-                let retryTimeout: NodeJS.Timeout | null = null;
-
-                const attemptImport = async (): Promise<boolean> => {
-                    try {
-                        const descriptorsImported = await WalletManager.importDescriptorsWithScanCheck(
-                            result.bitcoinData.descriptors,
-                            handleScanProgress
-                        );
-                        console.log("unlockWallet attemptImport descriptorsImported: ", descriptorsImported);
-                        if (descriptorsImported) {
-                            // Success - clear retry timeout and update state
-                            if (retryTimeout) {
-                                clearTimeout(retryTimeout);
-                            }
-                            update(state => ({
-                                ...state,
-                                isLocked: false,
-                                isLoading: false,
-                                walletData: result.walletKeys,
-                                bitcoinData: result.bitcoinData,
-                                error: null,
-                                failedAttempts: 0,
-                                isScanning: false,
-                                scanProgress: undefined,
-                                serverError: undefined
-                            }));
-
-                            // Start activity tracking
-                            updateLastActivity();
-                            startActivityTracking();
-                            
-                            return true;
-                        }
-
-                        // Import failed but we can retry
-                        if (retryCount < maxRetries) {
-                            retryCount++;
-                            update(state => ({
-                                ...state,
-                                isLoading: true,
-                                error: 'Waiting for wallet scan to complete',
-                                serverError: {
-                                    message: 'Wallet Import Pending',
-                                    tips: [
-                                        'The wallet is currently being processed',
-                                        `Automatic retry in ${retryInterval/1000} seconds (Attempt ${retryCount}/${maxRetries})`,
-                                        'Please wait while we complete the import',
-                                        'This delay is normal during initial blockchain sync'
-                                    ]
-                                }
-                            }));
-                            
-                            // Schedule next retry
-                            retryTimeout = setTimeout(() => {
-                                attemptImport();
-                            }, retryInterval);
-                            return false;
-                        }
-
-                        // Max retries reached
-                        update(state => ({
-                            ...state,
-                            isLoading: false,
-                            error: 'Failed to import wallet descriptors after multiple attempts',
-                            serverError: {
-                                message: 'Wallet Import Failed',
-                                tips: [
-                                    'Maximum retry attempts reached',
-                                    'The wallet is still processing previous operations',
-                                    'Please try again in a few minutes',
-                                    'If the problem persists, try restarting the application'
-                                ]
-                            }
-                        }));
-                        return false;
-                    } catch (error) {
-                        const errorMessage = error instanceof Error ? error.message : String(error);
-                        
-                        // If it's a rescan error and we haven't hit max retries, schedule another retry
-                        if (errorMessage.includes("Wallet is currently rescanning") && retryCount < maxRetries) {
-                            retryCount++;
-                            update(state => ({
-                                ...state,
-                                isLoading: true,
-                                error: 'Waiting for wallet scan',
-                                serverError: {
-                                    message: 'Wallet Scan in Progress',
-                                    tips: [
-                                        `Automatic retry in ${retryInterval/1000} seconds (Attempt ${retryCount}/${maxRetries})`,
-                                        'The wallet is scanning previous transactions',
-                                        'This is normal during initial setup or after a long period of inactivity',
-                                        'Please wait while the scan completes'
-                                    ]
-                                }
-                            }));
-                            
-                            // Schedule next retry
-                            retryTimeout = setTimeout(() => {
-                                attemptImport();
-                            }, retryInterval);
-                            return false;
-                        }
-
-                        throw error; // Re-throw other errors
-                    }
-                };
-
-                const importSuccess = await attemptImport();
-                return importSuccess;
-
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-                
+            // Get encryption key from server
+            const clientHmac = await generateClientHmac(password);
+            const response = await fetch(`${BRIDGE_SERVER_URL}/wallet/blind-key`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientHmac })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Server communication error');
+            }
+            
+            const { blindedKey } = await response.json();
+            const encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
+            
+            // Retrieve and validate wallet data
+            const result = await retrieveWalletData(encryptionKey);
+            if (!result) {
                 update(state => ({
                     ...state,
                     isLoading: false,
-                    error: errorMessage,
-                    isScanning: false,
-                    scanProgress: undefined,
-                    serverError: {
-                        message: 'Wallet Operation Failed',
-                        tips: errorMessage.includes('Wallet is currently rescanning')
-                            ? [
-                                'The wallet is currently being processed',
-                                'Please wait for the scanning to complete',
-                                'This may take a few minutes',
-                                'Try again once the scanning is finished'
-                              ]
-                            : [
-                                'Check your internet connection',
-                                'Make sure the server is running',
-                                'Try again in a few moments',
-                                'If the problem persists, contact support'
-                              ]
-                    }
+                    failedAttempts: state.failedAttempts + 1,
+                    error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`
                 }));
                 return false;
             }
+
+            // Import descriptors and wait for scan to complete
+            const descriptorsImported = await WalletManager.importDescriptorsWithScanCheck(
+                result.bitcoinData.descriptors,
+                handleScanProgress
+            );
+
+            if (!descriptorsImported) {
+                throw new Error('Failed to import wallet descriptors');
+            }
+
+            // Update state with wallet data
+            update(state => ({
+                ...state,
+                isLocked: false,
+                isLoading: false,
+                walletData: result.walletKeys,
+                bitcoinData: result.bitcoinData,
+                error: null,
+                failedAttempts: 0,
+                isScanning: false,
+                scanProgress: undefined,
+                serverError: undefined,
+                encryptionKey
+            }));
+
+            // Start activity tracking
+            updateLastActivity();
+            startActivityTracking();
+            
+            return true;
+
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            const tips = errorMessage.includes('Wallet is currently rescanning')
+                ? [
+                    'The wallet is currently being processed',
+                    'Please wait for the scanning to complete',
+                    'This may take a few minutes',
+                    'Try again once the scanning is finished'
+                  ]
+                : [
+                    'Check your internet connection',
+                    'Make sure the server is running',
+                    'Try again in a few moments',
+                    'If the problem persists, contact support'
+                  ];
+            
             update(state => ({
                 ...state,
                 isLoading: false,
                 error: errorMessage,
                 isScanning: false,
-                scanProgress: undefined
+                scanProgress: undefined,
+                serverError: {
+                    message: 'Wallet Operation Failed',
+                    tips
+                }
             }));
             return false;
         }
