@@ -1,12 +1,13 @@
 // make sure a sidecar is running, if it is not running, start it
 
 import { Child, Command } from "@tauri-apps/api/shell";
-import { join, appDataDir } from '@tauri-apps/api/path';
+import { join, appDataDir, resourceDir, appDir } from '@tauri-apps/api/path';
 import { fs, shell } from '@tauri-apps/api';
 import { arch, platform } from '@tauri-apps/api/os';
 import { getBlockchainInfo } from "./wallet-utils";
 import { CodeError, ErrorCode } from './error';
 import { app } from '@tauri-apps/api';
+import { process } from '@tauri-apps/api';
 
 async function strangeLog(m: string) {
     const appDataDirPath = await appDataDir();
@@ -38,6 +39,7 @@ export async function ensureBitbidIsRunning() {
         const child = await runBitbi(nodeDataDirPath);
         //write pid into bitbid.pid
         await fs.writeFile(`${nodeDataDirPath}/bitbid.pid`, child.pid.toString());
+        
         //wait for child.pid process is running and no more than xx seconds
         let count = 0;
         while (count < 20) {
@@ -210,12 +212,33 @@ async function runMinerd(minerDir: string, threads: number, addr: string) {
     const appVersion = await app.getVersion();
     const outLogFile = `${minerDir}/minerd.out.log`;
     const now = Date.now();
+    //log working directory
+    const appDirectory = await appDir();
+    console.log("miner working directory:", appDirectory);
+    // Get absolute path to resources directory
+    const resourcePath = await resourceDir();
+    console.log("miner resourcePath:", resourcePath);
+    
+    // Clean up the path - remove \\?\ prefix if present
+    const cleanResourcePath = resourcePath.replace(/^\\\\\?\\/, '');
+    const envPathSep = platformt === 'win32' ? ';' : ':';
+    const filePathSep = platformt === 'win32' ? '\\' : '/';
+    const mayBeResourcePaths = [cleanResourcePath, `${cleanResourcePath}${filePathSep}resources`, `.${filePathSep}resources`];
+    // Construct proper PATH environment variable
+    const pathEnv = `${platformt === 'win32' ? '%PATH%;' : '$PATH:'}${mayBeResourcePaths.join(envPathSep)}`;
+    console.log("miner pathEnv:", pathEnv);
+    
     const command = Command.sidecar("sidecar/minerd", [
         '--url=http://golden:wallet@127.0.0.1:9800',
         `--coinbase-sig=${archt}-${platformt}-v${appVersion}-${MinerId}${shortenNumbers(now).slice(-4)}`,
         `--coinbase-addr=${addr}`,
         `--threads=${threads}`,
-    ], { env: { "PATH": "%PATH%;.\\resources" }, encoding: "utf-8" });
+    ], { 
+        env: { 
+            "PATH": pathEnv 
+        }, 
+        encoding: "utf-8" 
+    });
     const miner = await command.spawn();
     command.stdout.on('data', data => {
         console.log('stdout:', data);

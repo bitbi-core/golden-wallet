@@ -174,7 +174,7 @@
       }
     ],
     "security": {
-      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-eval' 'unsafe-inline' 'self' tauri:; connect-src http://localhost:9800 http://localhost:8848 http://bridge.bitbi.org:8848 tauri://localhost;"
+      "csp": "default-src blob: data: filesystem: ws: http: https: 'unsafe-eval' 'unsafe-inline' 'self' tauri:; connect-src http://localhost:9800 http://localhost:8848 http://bridge.bitbi.org:8848 https://bridge.bitbi.org:8849 https://bridge.bitbi.org tauri://localhost;"
     },
     "bundle": {
       "active": true,
