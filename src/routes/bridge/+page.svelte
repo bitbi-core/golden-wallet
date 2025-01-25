@@ -11,6 +11,13 @@
 	import { walletId, ethAddress, ethPrivateKey } from '$lib/stores/wallet-store';
 	import { slide } from 'svelte/transition';
 
+	// Import new components
+	import NetworkSelector from '$lib/components/bridge/NetworkSelector.svelte';
+	import BridgeInfo from '$lib/components/bridge/BridgeInfo.svelte';
+	import AmountInput from '$lib/components/bridge/AmountInput.svelte';
+	import AddressInput from '$lib/components/bridge/AddressInput.svelte';
+	import TransactionHistory from '$lib/components/bridge/TransactionHistory.svelte';
+
 	let currentWallet: string;
 	let btbReceivingAddress: string = '';
 	let ethReceivingAddress: string = '';
@@ -279,7 +286,7 @@
 					return;
 				}
 
-				const response = await fetch(`${BRIDGE_SERVER_URL}/initiate-unwrap`, {
+				const response = await fetch(`${BRIDGE_SERVER_URL}/initiate-unwrap/`, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json'
@@ -405,174 +412,30 @@
 
 	<div class="card">
 		<div class="bridge-form">
-			<div class="network-selector">
-				<div class="network-section">
-					<label class="section-label" for="fromNetwork">From this network</label>
-					<div class="network-dropdown">
-						<select bind:value={fromNetwork} class="network-select" id="fromNetwork">
-							<option value="Bitbi">
-								Bitbi
-							</option>
-							<option value="Ethereum">
-								Ethereum
-							</option>
-						</select>
-					</div>
-				</div>
+			<NetworkSelector bind:fromNetwork bind:toNetwork />
 
-				<button class="swap-button" on:click={swapDirection} aria-label="Swap direction">
-					↔
-				</button>
+			<BridgeInfo {direction} bind:showBridgeInfo />
 
-				<div class="network-section">
-					<label class="section-label" for="toNetwork">To this network</label>
-					<div class="network-dropdown">
-						<select bind:value={toNetwork} class="network-select" id="toNetwork">
-							<option value="Bitbi">
-								Bitbi
-							</option>
-							<option value="Ethereum">
-								Ethereum
-							</option>
-						</select>
-					</div>
-				</div>
-			</div>
+			<AmountInput
+				{direction}
+				bind:amount
+				{receivedAmount}
+				{walletBtbBalance}
+				{walletWbtbBalance}
+				{walletEthBalance}
+				{min_wrap_amount}
+				{wrapFee}
+				{unwrapFee}
+				bind:showAddressInfo
+			/>
 
-			<div class="bridge-info-toggle">
-				<button class="toggle-button" on:click={() => showBridgeInfo = !showBridgeInfo}>
-					<span class="finger-icon">👉</span>
-					What is this? : {showBridgeInfo ? 'Show less' : 'Show more'}
-				</button>
-			</div>
+			<AddressInput
+				{direction}
+				bind:ethReceivingAddress
+				bind:showAddressInfo
+				{walletEthAddress}
+			/>
 
-			{#if showBridgeInfo}
-				{#if direction === 'btb_to_ebtb'}
-					<div class="bridge-info" transition:slide>
-						<h3>Bridge BTB to Ethereum (eBTB)</h3>
-						<p>To bridge your BTB tokens to Ethereum:</p>
-						<ol>
-							<li>Enter the amount of BTB you want to bridge</li>
-							<li>Provide your Ethereum address where you want to receive the bridged tokens (eBTB)</li>
-							<li>Click "Bridge" to initiate the transfer</li>
-						</ol>
-						<p class="note">Note: The bridging process may take a few minutes to complete.</p>
-					</div>
-				{:else}
-					<div class="bridge-info" transition:slide>
-						<h3>Bridge eBTB to Bitbi (BTB)</h3>
-						<p>To bridge your eBTB tokens from Ethereum:</p>
-						<ol>
-							<li>Make sure you have enough ETH in your wallet's Ethereum address to pay for gas fees</li>
-							<li>Enter the amount of eBTB you want to bridge</li>
-							<li>Send your eBTB tokens to the Ethereum address shown below</li>
-							<li>Click "Bridge" to initiate the transfer</li>
-						</ol>
-						<p class="note">Note: Insufficient ETH balance will cause the bridge transaction to fail.</p>
-					</div>
-				{/if}
-			{/if}
-
-			<div class="amount-section">
-				<div class="amount-inputs-row">
-					<div class="amount-input">
-						<label for="sendAmount">You send</label>
-						<div class="amount-field">
-							<input 
-								id="sendAmount"
-								type="number" 
-								bind:value={amount}
-								min={direction === 'btb_to_ebtb' ? min_wrap_amount : 0}
-								max={direction === 'btb_to_ebtb' ? max_wrap_amount : walletWbtbBalance}
-								step="0.00000001"
-								placeholder="0.00000000"
-							/>
-							<span class="token-symbol">{sendTokenLabel}</span>
-						</div>
-						{#if direction === 'btb_to_ebtb'}
-							<div class="available-amount">
-								Available: {walletBtbBalance.toFixed(2)} BTB
-							</div>
-							{#if amount < min_wrap_amount}
-								<div class="warning-text">
-									Minimum bridge amount is {min_wrap_amount} BTB
-								</div>
-							{/if}
-						{:else}
-							<div class="available-amounts">
-								<div class="balance-row">
-									<span>Available: {walletWbtbBalance.toFixed(2)} eBTB</span>
-									<button class="secondary-button send-ebtb-button" on:click={() => showAddressInfo = !showAddressInfo}>
-										Send eBTB In
-									</button>
-								</div>
-								<div>ETH Balance: {walletEthBalance.toFixed(6)} ETH</div>
-								<button class="toggle-button" on:click={() => showAddressInfo = !showAddressInfo}>
-									{showAddressInfo ? 'Show less' : 'Show wallet Ethereum address'}
-								</button>
-							</div>
-						{/if}
-					</div>
-
-					<div class="amount-input">
-						<label for="receivedAmount">You receive (estimated)</label>
-						<div class="amount-field receive-field">
-							<input 
-								id="receivedAmount"
-								type="number" 
-								value={receivedAmount}
-								disabled
-								placeholder="0.000000"
-							/>
-							<div class="token-label">: {receiveTokenLabel}</div>
-						</div>
-					</div>
-				</div>
-
-				{#if direction === 'btb_to_ebtb'}
-					<div class="fee-info">
-						Network fee: {wrapFee.btb_fee + wrapFee.eth_fee_in_ebtb} BTB
-					</div>
-				{/if}
-			</div>
-
-			{#if direction === 'btb_to_ebtb'}
-				<div class="address-input">
-					<label for="ethReceivingAddress">BTB Receiving Address on Ethereum</label>
-					<div class="address-field">
-						<input 
-							id="ethReceivingAddress"
-							type="text" 
-							bind:value={ethReceivingAddress}
-							placeholder="Enter your Ethereum address"
-							class="eth-address-input"
-						/>
-					</div>
-				</div>
-			{:else if showAddressInfo}
-				<div class="address-info" class:show={showAddressInfo} transition:slide>
-					<div class="address-info-content">
-						<label for="walletEthAddress">
-							Wallet's ETH Address
-							<span class="highlighted-text">(send eBTB out to this address if no eBTB available)</span>:
-						</label>
-						<div class="address-row">
-							<div class="address-display-container" id="walletEthAddress">
-								{walletEthAddress}
-								<CopyButton text={walletEthAddress} />
-							</div>
-							<button class="secondary-button send-eth-button" on:click={() => goto('/bridge/send-eth')}>
-								Send ETH Out
-							</button>
-						</div>
-					</div>
-				</div>
-			{/if}
-			{#if direction === 'ebtb_to_btb'}
-				<div class="fee-info">
-						Network fee: {unwrapFee.btb_fee} BTB + {unwrapFee.eth_fee} ETH
-				</div>
-			{/if}
 			{#if direction === 'btb_to_ebtb' && ethReceivingAddress.trim() === ''}
 				<p class="error-message">Ethereum address is required</p>
 			{/if}
@@ -600,33 +463,13 @@
 		</div>
 	</div>
 
-	<div class="card mt-6">
-		<h2>{direction === 'btb_to_ebtb' ? 'Wrap (BTB to eBTB)' : 'Unwrap (eBTB to BTB)'} History</h2>
-		<table>
-			<thead>
-				<tr>
-					<th>Date</th>
-					<th>Amount</th>
-					<th>Status</th>
-					<th>Details</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each (direction === 'btb_to_ebtb' ? wrapHistory : unwrapHistory) as transaction}
-					<tr>
-						<td>{new Date(transaction.create_time).toLocaleString()}</td>
-						<td>{transaction.amount} {direction === 'btb_to_ebtb' ? 'BTB' : 'eBTB'}</td>
-						<td class={getStatusStyle(transaction.status)}>{getFriendlyStatus(transaction.status)}</td>
-						<td>
-							<button class="view-details-button" on:click={() => openDetailsModal(transaction)}>
-									View Details
-							</button>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
+	<TransactionHistory
+		{direction}
+		{wrapHistory}
+		{unwrapHistory}
+		bind:showDetailsModal
+		bind:selectedTransaction
+	/>
 
 	{#if showErrorModal}
 		<ClosableModal on:close={closeErrorModal}>
@@ -652,106 +495,6 @@
 			</div>
 		</div>
 	{/if}
-
-	{#if showDetailsModal && selectedTransaction}
-		<div 
-			class="modal-overlay" 
-			on:keydown={(e) => e.key === 'Escape' && closeDetailsModal()}
-			tabindex="-2"
-			role="button"
-			aria-label="Close details modal"
-		>
-		<div class="details-modal" 
-			tabindex="-1"
-			role="button"
-			on:keydown={(e) => e.key === 'Escape' && closeDetailsModal()}
-		>
-			<div class="details-modal-header">
-				<h3>Transaction Details</h3>
-				<button class="close-button" on:click={closeDetailsModal}>&times;</button>
-			</div>
-			<div class="details-modal-content">
-				{#if isWrapTransaction(selectedTransaction)}
-					<div class="detail-item">
-						<span class="detail-label">BTB Transaction ID:</span>
-						<span class="detail-value">
-							<a  target="_blank" rel="noopener noreferrer" href="https://explorer.bitbi.org/tx/{selectedTransaction.btb_tx_id}">
-								{selectedTransaction.btb_tx_id}
-							</a>
-						</span>
-					</div>
-					{#if selectedTransaction.eth_tx_hash}
-						<div class="detail-item">
-							<span class="detail-label">ETH Transaction Hash:</span>
-							<span class="detail-value">
-								<a  target="_blank" rel="noopener noreferrer" href="https://etherscan.io/tx/{selectedTransaction.eth_tx_hash}">
-								{selectedTransaction.eth_tx_hash}
-								</a>
-							</span>
-						</div>
-					{/if}
-					<div class="detail-item">
-						<span class="detail-label">Receiving Address:</span>
-						<span class="detail-value">
-							<a  target="_blank" rel="noopener noreferrer" href="https://etherscan.io/address/{selectedTransaction.receiving_address}">
-								{selectedTransaction.receiving_address}
-							</a>
-						</span>
-					</div>
-					{#if selectedTransaction.minted_ebtb_amount !== null}
-						<div class="detail-item">
-							<span class="detail-label">Minted eBTB:</span>
-							<span class="detail-value">{selectedTransaction.minted_ebtb_amount}</span>
-						</div>
-					{/if}
-				{:else}
-					<div class="detail-item">
-						<span class="detail-label">ETH Transaction Hash:</span>
-						<span class="detail-value">
-							<a  target="_blank" rel="noopener noreferrer" href="https://etherscan.io/tx/{selectedTransaction.eth_tx_hash}">
-								{selectedTransaction.eth_tx_hash}
-							</a>
-						</span>
-					</div>
-					{#if selectedTransaction.btb_tx_id}
-						<div class="detail-item">
-							<span class="detail-label">BTB Transaction ID:</span>
-							<span class="detail-value">
-								<a  target="_blank" rel="noopener noreferrer" href="https://explorer.bitbi.org/tx/{selectedTransaction.btb_tx_id}">
-									{selectedTransaction.btb_tx_id}
-								</a>
-							</span>
-						</div>
-					{/if}
-					<div class="detail-item">
-						<span class="detail-label">Receiving Address:</span>
-						<span class="detail-value">
-							<a  target="_blank" rel="noopener noreferrer" href="https://explorer.bitbi.org/address/{selectedTransaction.btb_receiving_address}">
-								{selectedTransaction.btb_receiving_address}
-							</a>
-						</span>
-					</div>
-				{/if}
-				{#if selectedTransaction.exception_count > 0}
-					<div class="detail-item error">
-						<span class="detail-label">Exceptions:</span>
-						<span class="detail-value">{selectedTransaction.exception_count}</span>
-					</div>
-					<div class="detail-item error">
-						<span class="detail-label">Last Exception:</span>
-						<span class="detail-value">
-							{selectedTransaction.last_exception_time ? new Date(selectedTransaction.last_exception_time).toLocaleString() : 'N/A'}
-						</span>
-					</div>
-					<div class="detail-item error">
-						<span class="detail-label">Exception Details:</span>
-						<span class="detail-value">{selectedTransaction.exception_details}</span>
-					</div>
-				{/if}
-				</div>
-			</div>
-		</div>
-	{/if}
 </div>
 
 <style>
@@ -760,6 +503,7 @@
 		margin: 0 auto;
 		padding: 20px;
 		width: 100%;
+		box-sizing: border-box;
 	}
 
 	.page-title {
@@ -773,13 +517,11 @@
 	.card {
 		background: white;
 		border-radius: 12px;
-		padding: 32px;
+		padding: 24px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 		width: 100%;
-	}
-
-	.mt-6 {
-		margin-top: 24px;
+		box-sizing: border-box;
+		overflow: hidden;
 	}
 
 	.bridge-form {
@@ -787,174 +529,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-	}
-
-	.network-selector {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
-		margin-bottom: 4px;
-	}
-
-	.network-section {
-		flex: 1;
-	}
-
-	.section-label {
-		display: block;
-		font-size: 14px;
-		color: #666;
-		margin-bottom: 8px;
-	}
-
-	.network-dropdown {
-		position: relative;
-	}
-
-	.network-select {
-		width: 100%;
-		padding: 12px;
-		padding-left: 40px;
-		border: 1px solid #ddd;
-		border-radius: 8px;
-		font-size: 16px;
-		appearance: none;
-		background: white;
-		cursor: pointer;
-	}
-
-	.swap-button {
-		width: 40px;
-		height: 40px;
-		border: 1px solid #ddd;
-		border-radius: 50%;
-		background: white;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 20px;
-		margin-top: 24px;
-		transition: all 0.2s;
-	}
-
-	.swap-button:hover {
-		background: #f5f5f5;
-		transform: scale(1.05);
-	}
-
-	.amount-section {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.amount-inputs-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
-		align-items: start;
-	}
-
-	.amount-input {
-		flex: 1;
-		background: #f8f9fa;
-		padding: 16px;
-		border-radius: 12px;
-		min-width: 0;
-	}
-
-	.amount-field {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-top: 8px;
-		background: #f8f9fa;
-		padding: 8px 12px;
-		border-radius: 8px;
-		width: 100%;
-	}
-
-	.amount-field input {
-		flex: 1;
-		background: transparent;
-		border: none;
-		font-size: 24px;
-		padding: 8px 0;
-		width: 100%;
-		min-width: 0;
-	}
-
-	.amount-field input:focus {
-		outline: none;
-		box-shadow: none;
-	}
-
-	.amount-field input:disabled {
-		color: #666;
-	}
-
-	.token-symbol {
-		font-size: 20px;
-		font-weight: 500;
-		color: #333;
-	}
-
-	.available-amount {
-		font-size: 14px;
-		color: #666;
-		margin-top: 8px;
-	}
-
-	.fee-info {
-		font-size: 14px;
-		color: #666;
-		background: #f8f9fa;
-		padding: 16px;
-		border-radius: 12px;
-		text-align: center;
-	}
-
-	.address-input {
-		margin-top: 24px;
-		margin-bottom: 24px;
-		background: #f8f9fa;
-		padding: 16px;
-		border-radius: 12px;
-	}
-
-	.address-input label {
-		display: block;
-		font-size: 14px;
-		color: #666;
-		margin-bottom: 8px;
-	}
-
-	.address-field {
-		background: white;
-		border-radius: 8px;
-		padding: 4px;
-	}
-
-	.eth-address-input {
-		width: 100%;
-		padding: 12px;
-		border: 1px solid #ddd;
-		border-radius: 8px;
-		font-size: 14px;
-		font-family: monospace;
-		background: white;
-	}
-
-	.eth-address-input:focus {
-		outline: none;
-		border-color: #4a90e2;
-		box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
-	}
-
-	.eth-address-input::placeholder {
-		color: #999;
+		box-sizing: border-box;
 	}
 
 	.error-message {
@@ -990,20 +565,6 @@
 		cursor: not-allowed;
 	}
 
-	.secondary-button {
-		background: #6c757d;
-		color: white;
-		border: none;
-		padding: 8px 16px;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.secondary-button:hover {
-		background: #5a6268;
-	}
-
 	.loading-spinner {
 		display: inline-block;
 		width: 20px;
@@ -1016,96 +577,19 @@
 		vertical-align: middle;
 	}
 
-	.fee-item {
-		background: #f8f9fa;
-		padding: 16px;
-		border-radius: 8px;
-		margin-top: 12px;
-	}
-
-	.tooltip {
-		position: relative;
-		display: inline-block;
-		border-bottom: 1px dotted #666;
-		cursor: help;
-		margin-left: 8px;
-	}
-
-
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		margin-top: 16px;
-	}
-
-	th, td {
-		border: 1px solid #ddd;
-		padding: 12px;
-		text-align: left;
-	}
-
-	th {
-		background-color: #f8f9fa;
-		font-weight: 600;
-	}
-
-	tr:hover {
-		background-color: #f8f9fa;
-	}
-
 	@keyframes spin {
 		0% { transform: rotate(0deg); }
 		100% { transform: rotate(360deg); }
 	}
 
-	.mt-2 {
-		margin-top: 8px;
-	}
-
-	.address-container {
-		margin: 1rem 0;
-	}
-
-	.address-display-container {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		background: #f5f5f5;
-		padding: 0.5rem;
-		border-radius: 4px;
-	}
-
-	.address-display {
-		margin: 0;
-		font-family: monospace;
-		word-break: break-all;
-	}
-
-	.status-completed {
-		color: #52c41a;
-		font-weight: 500;
-		background: #f6ffed;
-		padding: 4px 8px;
-		border-radius: 4px;
-		border: 1px solid #b7eb8f;
-	}
-
-	.status-progress {
-		color: #1890ff;
-		font-weight: 500;
-		background: #e6f7ff;
-		padding: 4px 8px;
-		border-radius: 4px;
-		border: 1px solid #91d5ff;
-	}
-
-	.status-error {
-		color: #f5222d;
-		font-weight: 500;
-		background: #fff1f0;
-		padding: 4px 8px;
-		border-radius: 4px;
-		border: 1px solid #ffa39e;
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 999;
 	}
 
 	.success-modal {
@@ -1153,368 +637,6 @@
 		justify-content: center;
 		font-size: 24px;
 		margin: 0 auto 16px;
-	}
-
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.5);
-		z-index: 999;
-	}
-
-	.address-info {
-		background: #f8f9fa;
-		padding: 12px;
-		border-radius: 12px;
-		margin-top: 8px;
-		opacity: 0;
-		max-height: 0;
-		overflow: hidden;
-		transition: all 0.3s ease-in-out;
-	}
-
-	.address-info.show {
-		opacity: 1;
-		max-height: 150px;
-	}
-
-	.address-info-content {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.address-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-	}
-
-	.address-display-container {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		background: white;
-		padding: 8px;
-		border-radius: 6px;
-		height: 38px;
-		font-family: monospace;
-		font-size: 13px;
-	}
-
-	.send-eth-button {
-		white-space: nowrap;
-		height: 38px;
-		padding: 0 12px;
-		font-size: 14px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.secondary-button {
-		background: #6c757d;
-		color: white;
-		border: none;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: background-color 0.2s;
-	}
-
-	.bridge-info-toggle {
-		text-align: right;
-		margin: 0;
-		padding: 0;
-	}
-
-	.toggle-button {
-		background: none;
-		border: none;
-		color: #4a90e2;
-		padding: 0;
-		cursor: pointer;
-		font-size: 14px;
-		text-align: left;
-	}
-
-	.bridge-info {
-		background: #f0f7ff;
-		padding: 16px 20px;
-		border-radius: 12px;
-		margin: 16px 0;
-		border: 1px solid #bae0ff;
-	}
-
-	.amount-section {
-		margin-top: 8px;
-	}
-
-	.bridge-info h3 {
-		color: #1890ff;
-		margin: 0 0 12px 0;
-		font-size: 16px;
-		font-weight: 600;
-	}
-
-	.bridge-info p {
-		margin: 0 0 12px 0;
-		color: #333;
-		font-size: 14px;
-		line-height: 1.5;
-		padding-left: 0;
-	}
-
-	.bridge-info ol {
-		margin: 0 0 16px 0;
-		padding-left: 35px;
-		list-style-position: outside;
-	}
-
-	.bridge-info li {
-		margin-bottom: 8px;
-		color: #333;
-		font-size: 14px;
-		line-height: 1.5;
-		padding-left: 8px;
-		margin-left: 0;
-	}
-
-	.bridge-info li::marker {
-		color: #1890ff;
-		font-weight: 500;
-	}
-
-	.bridge-info .note {
-		font-style: italic;
-		color: #666;
-		margin: 12px 0 0 0;
-		font-size: 13px;
-		line-height: 1.4;
-	}
-
-	.bridge-info-toggle {
-		text-align: right;
-		margin: 0 0 8px 0;
-	}
-
-	.available-amounts {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-top: 8px;
-		color: #666;
-		font-size: 14px;
-	}
-
-	.balance-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-	}
-
-	.send-ebtb-button {
-		font-size: 12px;
-		padding: 4px 8px;
-		height: auto;
-		background: #4a90e2;
-	}
-
-	.send-ebtb-button:hover {
-		background: #357abd;
-	}
-
-	.toggle-button {
-		background: none;
-		border: none;
-		color: #4a90e2;
-		padding: 4px 0;
-		cursor: pointer;
-		font-size: 14px;
-		text-align: left;
-		margin-top: 4px;
-	}
-
-	.toggle-button:hover {
-		text-decoration: underline;
-	}
-
-	.receive-field {
-		opacity: 0.8;
-	}
-
-	.receive-field input {
-		color: #666;
-	}
-
-	.token-label {
-		white-space: nowrap;
-		color: #666;
-		font-size: 20px;
-		font-weight: 500;
-	}
-
-	input[type="number"] {
-		-moz-appearance: textfield;
-	}
-
-	input[type="number"]::-webkit-inner-spin-button,
-	input[type="number"]::-webkit-outer-spin-button {
-		-webkit-appearance: none;
-		margin: 0;
-	}
-
-	:global(.copy-button) {
-		padding: 2px 4px;
-		font-size: 0.9em;
-	}
-
-	.warning-text {
-		color: #ff4d4f;
-		font-size: 12px;
-		margin-top: 4px;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.warning-text::before {
-		content: "⚠️";
-		font-size: 12px;
-	}
-
-	.view-details-button {
-		background: none;
-		border: none;
-		color: #4a90e2;
-		cursor: pointer;
-		padding: 4px 8px;
-		font-size: 14px;
-		border-radius: 4px;
-		transition: background-color 0.2s;
-	}
-
-	.view-details-button:hover {
-		background: #f0f7ff;
-	}
-
-	.details-modal {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		background: white;
-		padding: 24px;
-		border-radius: 12px;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-		z-index: 1000;
-		max-width: 600px;
-		width: 90%;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	.details-modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 16px;
-		padding-bottom: 16px;
-		border-bottom: 1px solid #eee;
-	}
-
-	.details-modal-header h3 {
-		margin: 0;
-		font-size: 18px;
-		color: #333;
-	}
-
-	.close-button {
-		background: none;
-		border: none;
-		font-size: 24px;
-		color: #666;
-		cursor: pointer;
-		padding: 4px;
-		line-height: 1;
-	}
-
-	.close-button:hover {
-		color: #333;
-	}
-
-	.details-modal-content {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.detail-item {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		padding: 8px;
-		background: #f8f9fa;
-		border-radius: 8px;
-	}
-
-	.detail-item.error {
-		background: #fff2f0;
-	}
-
-	.detail-label {
-		font-size: 12px;
-		color: #666;
-		font-weight: 500;
-	}
-
-	.detail-value {
-		font-family: monospace;
-		font-size: 13px;
-		word-break: break-all;
-		color: #333;
-	}
-
-	.detail-item.error .detail-label {
-		color: #ff4d4f;
-	}
-
-	.detail-item.error .detail-value {
-		color: #cf1322;
-	}
-
-	.detail-value a {
-		color: #4a90e2;
-		text-decoration: none;
-		word-break: break-all;
-	}
-
-	.detail-value a:hover {
-		text-decoration: underline;
-	}
-
-	.highlighted-text {
-		color: #ff5722;
-		font-weight: bold;
-	}
-
-	.finger-icon {
-		margin-right: 8px;
-		font-size: 1.2em;
-		animation: wiggle 1s infinite;
-	}
-
-	@keyframes wiggle {
-		0% { transform: rotate(0deg); }
-		25% { transform: rotate(15deg); }
-		50% { transform: rotate(-15deg); }
-		75% { transform: rotate(15deg); }
-		100% { transform: rotate(0deg); }
 	}
 </style>
 

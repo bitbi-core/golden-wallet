@@ -1,33 +1,53 @@
-<script>
+<script lang="ts">
+	import TabNavigation from '$lib/components/TabNavigation.svelte';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { curBcInfo, curWalletInfoStore } from '$lib/store';
+	import LoadingProgress from '$lib/components/LoadingProgress.svelte';
+
+	const tabs = ['Overview', 'Send', 'Receive', 'Transactions'];
+	$: activeTab = $page.url.pathname.split('/').pop() || 'overview';
+	
+	function handleTabChange(tab: string) {
+		const route = tab.toLowerCase();
+		if (route === 'overview') {
+			goto('/wallet');
+		} else {
+			goto(`/wallet/${route}`);
+		}
+	}
+
+	$: loading = $curBcInfo.initialblockdownload || $curBcInfo.blocks !== $curBcInfo.headers;
+	$: loadingProgress = $curBcInfo.headers ? ($curBcInfo.blocks / $curBcInfo.headers) * 100 : 0;
 
 	$: isCaughtUp = !$curBcInfo.initialblockdownload && $curBcInfo.blocks === $curBcInfo.headers;
 	$: walletReady = !!$curWalletInfoStore && isCaughtUp;
 </script>
 
-<div class="container">
-	<div class="nav-bar">
-		<a href="/wallet" class:active={$page.url.pathname === '/wallet'}>Overview</a>
-		{#if walletReady}
-			<a href="/wallet/send" class:active={$page.url.pathname === '/wallet/send'}>Send</a>
-			<a href="/wallet/receive" class:active={$page.url.pathname === '/wallet/receive'}>Receive</a>
-			<a href="/wallet/transactions" class:active={$page.url.pathname === '/wallet/transactions'}
-				>Transactions</a
-			>
-		{:else}
-			<span>Send</span>
-			<span>Receive</span>
-			<span>Transactions</span>
-		{/if}
+<div class="wallet-layout">
+	<TabNavigation {tabs} {activeTab} onTabChange={handleTabChange} />
+
+	<div class="content">
+		<slot />
 	</div>
 
-	<div class="main-content">
-		<slot></slot>
-	</div>
+	{#if loadingProgress < 100}
+		<LoadingProgress progress={loadingProgress} />
+	{/if}
 </div>
 
 <style>
+	.wallet-layout {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		padding: 24px;
+	}
+
+	.content {
+		position: relative;
+	}
+
 	.container {
 		display: flex;
 		flex-direction: column;

@@ -3,12 +3,12 @@
   "build": {
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "devPath": "http://localhost:5173",
+    "devPath": "http://localhost:8850",
     "distDir": "../build"
   },
   "package": {
     "productName": "golden-wallet",
-    "version": "1.0.3"
+    "version": "1.0.5"
   },
   "tauri": {
     "allowlist": {

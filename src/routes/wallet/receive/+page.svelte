@@ -8,11 +8,14 @@
 	} from '$lib/wallet-utils';
 	import { curWalletStore } from '$lib/store';
 	import { getShorter } from '$lib/utils';
+
 	let addressType: AddrType = 'bech32';
 	let label = '';
 	let addresses: IAddressInfo[] = [];
 	let addressTypes: AddrType[] = ['p2sh-segwit', 'bech32', 'bech32m'];
 	let curWallet: string;
+	let copiedAddress: string | null = null;
+
 	$: {
 		curWallet = $curWalletStore;
 		loadAddresses(curWallet);
@@ -23,7 +26,7 @@
 	}
 
 	async function loadAddressesForLabel(wallet: string, label: string) {
-		const labeledAddrs:IAddressInfo[] = [] ;
+		const labeledAddrs: IAddressInfo[] = [];
 		const addrs = (await getAddressesByLabel(wallet, label)) || [];
 		for (const addr of addrs) {
 			if (isAddrLoaded(addr)) {
@@ -32,14 +35,10 @@
 			const addrInfo = await getAddressInfo(wallet, addr);
 			labeledAddrs.push(addrInfo);
 		}
-		//force update
 		return labeledAddrs;
 	}
 
 	async function loadAddresses(wallet: string) {
-		//1. loadlabels of current wallet
-		//2. load addresses for each label of current wallet
-		//3. get addresses info for each address
 		let newAddrs: IAddressInfo[] = [];
 		try {
 			const labels = await listLabels(wallet);
@@ -47,7 +46,6 @@
 				const a = await loadAddressesForLabel(wallet, label);
 				newAddrs = [...newAddrs, ...a];
 			}
-			// sort addresses by timestamp decending
 			newAddrs.sort((a, b) => b.timestamp - a.timestamp);
 			addresses = newAddrs;
 		} catch (e) {
@@ -56,30 +54,44 @@
 	}
 
 	async function generateAddress() {
-		console.log('generateAddress', addressType, label);
-		const addr = await getNewAddress(curWallet, label, addressType);
-		console.log('generateAddress new address:', addr);
-		const addrInfo = await getAddressInfo(curWallet, addr);
-		addresses = [addrInfo, ...addresses];
+		if (!label) {
+			alert('Please enter a label');
+			return;
+		}
+		try {
+			const addr = await getNewAddress(curWallet, label, addressType);
+			const addrInfo = await getAddressInfo(curWallet, addr);
+			addresses = [addrInfo, ...addresses];
+			label = ''; // Reset label after successful generation
+		} catch (e) {
+			console.error('Error generating address:', e);
+			alert('Failed to generate address. Please try again.');
+		}
 	}
 
 	function copyAddress(address: string) {
 		navigator.clipboard.writeText(address);
+		copiedAddress = address;
+		setTimeout(() => {
+			if (copiedAddress === address) {
+				copiedAddress = null;
+			}
+		}, 2000);
 	}
 
-
 	function formatAddress(address: string) {
-        return getShorter(address);
-    }
+		return getShorter(address);
+	}
 
-	// for address table pagination
+	// Pagination
 	let currentPage = 1;
 	const itemsPerPage = 10;
 	let paginatedAddresses: IAddressInfo[];
 	let totalPages: number;
-    $: {
-        totalPages = Math.ceil(addresses.length / itemsPerPage);
-    }
+	
+	$: {
+		totalPages = Math.ceil(addresses.length / itemsPerPage);
+	}
 
 	$: {
 		const start = (currentPage - 1) * itemsPerPage;
@@ -98,144 +110,220 @@
 			currentPage--;
 		}
 	}
-
 </script>
 
-<div class="wrapper">
-	<form on:submit|preventDefault={generateAddress}>
-		<div>
-			<span>Address Type:</span>
-			<select bind:value={addressType} required>
-				<!-- Change this line -->
-				<option disabled value="">Select an address type</option>
-				{#each addressTypes as type}
-					<!-- Add these lines -->
-					<option>{type}</option>
-				{/each}
-			</select>
-		</div>
-		<div>
-			<span>Label:</span>
-			<input bind:value={label} required />
-		</div>
-		<button type="submit">Generate Address</button>
-	</form>
+<div class="receive-container">
+	<div class="generate-section">
+		<h2>Generate New Address</h2>
+		<form on:submit|preventDefault={generateAddress}>
+			<div class="form-group">
+				<label for="addressType">Address Type</label>
+				<select id="addressType" bind:value={addressType} required>
+					{#each addressTypes as type}
+						<option value={type}>{type}</option>
+					{/each}
+				</select>
+			</div>
+			
+			<div class="form-group">
+				<label for="label">Label</label>
+				<input 
+					id="label"
+					bind:value={label} 
+					placeholder="Enter a label for this address"
+					required 
+				/>
+			</div>
 
-	<div class="table-container">
-		<table>
-			<thead>
-				<tr>
-					<th>Type</th>
-					<th>Label</th>
-					<th>Address</th>
-					<th>Copy</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each paginatedAddresses as { type, labels, address }, i}
+			<button type="submit" class="generate-button">
+				Generate New Address
+			</button>
+		</form>
+	</div>
+
+	<div class="addresses-section">
+		<h2>Your Addresses</h2>
+		<div class="table-container">
+			<table>
+				<thead>
 					<tr>
-						<td>{type}</td>
-						<td>{labels.join(',')}</td>
-						<td>{formatAddress(address)}</td>
-						<td><button on:click={() => copyAddress(address)}>Copy</button></td>
+						<th>Type</th>
+						<th>Label</th>
+						<th>Address</th>
+						<th>Action</th>
 					</tr>
-				{/each}
-			</tbody>
-		</table>
-		<div class="pagination">
-			<button on:click={prevPage} disabled={currentPage === 1}>Previous</button>
-			<span> {currentPage}/{totalPages} </span>
-			<button on:click={nextPage} disabled={currentPage * itemsPerPage >= addresses.length}
-				>Next</button
-			>
+				</thead>
+				<tbody>
+					{#each paginatedAddresses as { type, labels, address }}
+						<tr>
+							<td class="type-cell">{type}</td>
+							<td class="label-cell">{labels.join(', ')}</td>
+							<td class="address-cell">{formatAddress(address)}</td>
+							<td class="action-cell">
+								<button 
+									class="copy-button" 
+									class:copied={copiedAddress === address}
+									on:click={() => copyAddress(address)}
+								>
+									{copiedAddress === address ? 'Copied!' : 'Copy'}
+								</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+
+			{#if addresses.length > itemsPerPage}
+				<div class="pagination">
+					<div class="pagination-controls">
+						<button 
+							class="page-button"
+							on:click={() => currentPage = 1}
+							disabled={currentPage === 1}
+							title="First page"
+						>
+							<span>«</span>
+						</button>
+						<button 
+							class="page-button" 
+							on:click={prevPage} 
+							disabled={currentPage === 1}
+							title="Previous page"
+						>
+							<span>‹</span>
+						</button>
+
+						<div class="page-numbers">
+							{#if currentPage > 2}
+								<button class="page-number" on:click={() => currentPage = 1}>1</button>
+								{#if currentPage > 3}
+									<span class="page-ellipsis">...</span>
+								{/if}
+							{/if}
+
+							{#if currentPage > 1}
+								<button class="page-number" on:click={() => currentPage = currentPage - 1}>
+									{currentPage - 1}
+								</button>
+							{/if}
+
+							<button class="page-number active">{currentPage}</button>
+
+							{#if currentPage < totalPages}
+								<button class="page-number" on:click={() => currentPage = currentPage + 1}>
+									{currentPage + 1}
+								</button>
+							{/if}
+
+							{#if currentPage < totalPages - 1}
+								{#if currentPage < totalPages - 2}
+									<span class="page-ellipsis">...</span>
+								{/if}
+								<button class="page-number" on:click={() => currentPage = totalPages}>
+									{totalPages}
+								</button>
+							{/if}
+						</div>
+
+						<button 
+							class="page-button" 
+							on:click={nextPage} 
+							disabled={currentPage === totalPages}
+							title="Next page"
+						>
+							<span>›</span>
+						</button>
+						<button 
+							class="page-button"
+							on:click={() => currentPage = totalPages}
+							disabled={currentPage === totalPages}
+							title="Last page"
+						>
+							<span>»</span>
+						</button>
+					</div>
+					<div class="page-info">
+						Showing {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, addresses.length)} of {addresses.length} addresses
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>
 
 <style>
-	body {
-		font-family: Arial, sans-serif;
-		background-color: #f5f5f5;
+	.receive-container {
+		display: flex;
+		gap: 24px;
+		width: 100%;
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+
+	.generate-section {
+		flex: 0 0 350px;
+	}
+
+	.addresses-section {
+		flex: 1;
+		min-width: 0; /* Prevents flex item from overflowing */
+	}
+
+	h2 {
+		margin: 0 0 20px;
 		color: #333;
+		font-size: 1.5rem;
 	}
 
-	.wrapper {
-		display: flex;
-		gap: 30px;
-		width: 100%;
-	}
-
-	form {
-		display: flex;
-		flex-direction: column;
-		gap: 20px;
-		width: 100%;
-		max-width: 400px;
-		padding: 25px;
-		background-color: #fff;
+	.generate-section, .addresses-section {
+		background: white;
 		border-radius: 12px;
+		padding: 24px;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 	}
 
-	form div {
-		display: flex;
-		flex-direction: column;
-		width: 100%;
+	.form-group {
+		margin-bottom: 20px;
 	}
 
-	form div span {
-		font-weight: 600;
+	label {
+		display: block;
 		margin-bottom: 8px;
+		font-weight: 600;
 		color: #333;
 	}
 
-	input,
-	select {
+	input, select {
+		width: 100%;
 		padding: 12px;
 		border: 1px solid #e0e0e0;
 		border-radius: 6px;
 		font-size: 1rem;
 		transition: all 0.2s ease;
-		width: 100%;
 		box-sizing: border-box;
 	}
 
-	input:focus,
-	select:focus {
+	input:focus, select:focus {
 		border-color: #4CAF50;
 		box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
 		outline: none;
 	}
 
-	select {
-		background-color: white;
-		cursor: pointer;
-	}
-
-	button {
-		padding: 12px 24px;
+	.generate-button {
+		width: 100%;
+		padding: 12px;
+		background: #4CAF50;
+		color: white;
 		border: none;
 		border-radius: 6px;
-		background-color: #4CAF50;
-		color: white;
-		cursor: pointer;
-		transition: background-color 0.2s ease;
 		font-size: 1rem;
 		font-weight: 600;
-		margin-top: 10px;
+		cursor: pointer;
+		transition: background-color 0.2s ease;
 	}
 
-	button:hover {
-		background-color: #43A047;
-	}
-
-	.table-container {
-		flex: 1;
-		background-color: #fff;
-		border-radius: 12px;
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-		padding: 25px;
-		min-width: 0; /* Prevents flex item from overflowing */
+	.generate-button:hover {
+		background: #43A047;
 	}
 
 	table {
@@ -244,64 +332,150 @@
 		margin-bottom: 20px;
 	}
 
-	th,
-	td {
+	th, td {
 		padding: 12px;
 		text-align: left;
 		border-bottom: 1px solid #f0f0f0;
-		font-size: 0.95rem;
 	}
 
 	th {
 		font-weight: 600;
-		color: #333;
-		background-color: #F5F5F5;
+		color: #666;
+		background: #f9f9f9;
 	}
 
 	tr:hover {
-		background-color: #F9F9F9;
+		background: #f9f9f9;
 	}
 
-	td button {
-		margin: 0;
-		padding: 8px 16px;
+	.type-cell {
+		width: 120px;
+		color: #666;
+	}
+
+	.label-cell {
+		width: 150px;
+	}
+
+	.address-cell {
+		font-family: monospace;
+		color: #333;
+	}
+
+	.action-cell {
+		width: 100px;
+	}
+
+	.copy-button {
+		padding: 6px 12px;
+		background: #E8F5E9;
+		color: #4CAF50;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.2s ease;
 		font-size: 0.9rem;
-		background-color: #4CAF50;
+		font-weight: 500;
 	}
 
-	td button:hover {
-		background-color: #43A047;
+	.copy-button:hover {
+		background: #C8E6C9;
+	}
+
+	.copy-button.copied {
+		background: #4CAF50;
+		color: white;
 	}
 
 	.pagination {
 		display: flex;
-		justify-content: flex-end;
-		gap: 15px;
+		flex-direction: column;
 		align-items: center;
-		margin-top: 20px;
-		padding-top: 20px;
+		gap: 12px;
+		margin-top: 24px;
+		padding-top: 24px;
 		border-top: 1px solid #f0f0f0;
 	}
 
-	.pagination button {
-		padding: 8px 16px;
-		background-color: #4CAF50;
-		color: white;
-		border: none;
+	.pagination-controls {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.page-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		background: white;
+		border: 1px solid #e0e0e0;
 		border-radius: 6px;
 		cursor: pointer;
-		font-size: 0.95rem;
-		margin: 0;
-	}
-
-	.pagination button:disabled {
-		background-color: #e0e0e0;
-		cursor: not-allowed;
-	}
-
-	.pagination span {
-		font-size: 1rem;
 		color: #666;
-		margin: 0 10px;
+		font-weight: 500;
+		font-size: 1.2rem;
+		transition: all 0.2s ease;
+	}
+
+	.page-button:hover:not(:disabled) {
+		background: #f5f5f5;
+		border-color: #d0d0d0;
+		color: #333;
+	}
+
+	.page-button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		background: #f9f9f9;
+	}
+
+	.page-numbers {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin: 0 8px;
+	}
+
+	.page-number {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		background: white;
+		border: 1px solid #e0e0e0;
+		border-radius: 6px;
+		cursor: pointer;
+		color: #666;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+
+	.page-number:hover:not(.active) {
+		background: #f5f5f5;
+		border-color: #d0d0d0;
+		color: #333;
+	}
+
+	.page-number.active {
+		background: #4CAF50;
+		border-color: #4CAF50;
+		color: white;
+		cursor: default;
+	}
+
+	.page-ellipsis {
+		color: #666;
+		padding: 0 4px;
+	}
+
+	.page-info {
+		color: #666;
+		font-size: 0.9rem;
+		text-align: center;
 	}
 </style>

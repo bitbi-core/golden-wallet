@@ -11,6 +11,9 @@ export default defineConfig({
 	// 	  $lib: path.resolve('./src/lib')
 	// 	}
 	//   },
+	server: {
+		port: 8850
+	},
 	optimizeDeps: {
 		exclude: [
 			'tiny-secp256k1',
