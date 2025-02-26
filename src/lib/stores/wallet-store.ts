@@ -9,6 +9,7 @@ import { validateMnemonic } from '../wallet-key-utils';
 import { WalletManager } from '../wallet-manager';
 import { gRpcClient } from '../bitbi-rpc/index';
 import type { ScanProgress } from '../types';
+import { fetchWithRetry, stringToHex } from '../utils';
 
 interface ServerError {
     message: string;
@@ -30,6 +31,15 @@ interface WalletState {
     scanProgress?: ScanProgress;
     encryptionKey?: string;
 }
+
+// Define the response type for the blind-key endpoint
+interface BlindKeyResponse {
+    blindedKey: string;
+}
+
+// Default blinded key to use as fallback when server is unavailable
+// Convert to hex string to ensure proper format
+const DEFAULT_BLINDED_KEY = stringToHex("golden-wallet+with@you!");
 
 function createWalletStore() {
     const { subscribe, set, update } = writable<WalletState>({
@@ -123,17 +133,20 @@ function createWalletStore() {
             }
 
             const clientHmac = await generateClientHmac(password);
-            const response = await fetch(`${BRIDGE_SERVER_URL}/wallet/blind-key`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientHmac })
-            });
             
-            if (!response.ok) {
-                throw new Error('Failed to get server blinded key');
-            }
+            // Use fetchWithRetry with fallback to default blinded key
+            const { blindedKey } = await fetchWithRetry<BlindKeyResponse>(
+                `${BRIDGE_SERVER_URL}/wallet/blind-key`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientHmac })
+                },
+                3,
+                1000,
+                async () => ({ blindedKey: DEFAULT_BLINDED_KEY })
+            );
             
-            const { blindedKey } = await response.json();
             const encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
             
             // Derive and import descriptors with scan check
@@ -210,29 +223,35 @@ function createWalletStore() {
 
             // Get encryption key from server
             const clientHmac = await generateClientHmac(password);
-            const response = await fetch(`${BRIDGE_SERVER_URL}/wallet/blind-key`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientHmac })
-            });
             
-            if (!response.ok) {
-                throw new Error('Server communication error');
-            }
+            // First try with default blinded key
+            let encryptionKey = await deriveClientEncryptionKey(password, DEFAULT_BLINDED_KEY);
+            let result = await retrieveWalletData(encryptionKey);
             
-            const { blindedKey } = await response.json();
-            const encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
-            
-            // Retrieve and validate wallet data
-            const result = await retrieveWalletData(encryptionKey);
+            // If default key didn't work, try with server key
             if (!result) {
-                update(state => ({
-                    ...state,
-                    isLoading: false,
-                    failedAttempts: state.failedAttempts + 1,
-                    error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`
-                }));
-                return false;
+                // Use fetchWithRetry to get blinded key from server
+                const { blindedKey } = await fetchWithRetry<BlindKeyResponse>(
+                    `${BRIDGE_SERVER_URL}/wallet/blind-key`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ clientHmac })
+                    }
+                );
+                
+                encryptionKey = await deriveClientEncryptionKey(password, blindedKey);
+                result = await retrieveWalletData(encryptionKey);
+                
+                if (!result) {
+                    update(state => ({
+                        ...state,
+                        isLoading: false,
+                        failedAttempts: state.failedAttempts + 1,
+                        error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`
+                    }));
+                    return false;
+                }
             }
 
             // Import descriptors and wait for scan to complete
