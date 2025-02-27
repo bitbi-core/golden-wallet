@@ -11,9 +11,19 @@ import { gRpcClient } from '../bitbi-rpc/index';
 import type { ScanProgress } from '../types';
 import { fetchWithRetry, stringToHex } from '../utils';
 
+// Define error categories for better error handling
+enum ErrorCategory {
+    AUTHENTICATION = 'authentication',
+    NETWORK = 'network',
+    SERVER = 'server',
+    WALLET_PROCESSING = 'wallet_processing',
+    UNKNOWN = 'unknown'
+}
+
 interface ServerError {
     message: string;
     tips: string[];
+    category?: ErrorCategory;
 }
 
 interface WalletState {
@@ -30,6 +40,7 @@ interface WalletState {
     isScanning: boolean;
     scanProgress?: ScanProgress;
     encryptionKey?: string;
+    errorCategory?: ErrorCategory;
 }
 
 // Define the response type for the blind-key endpoint
@@ -54,8 +65,82 @@ function createWalletStore() {
         failedAttempts: 0,
         isScanning: false,
         scanProgress: undefined,
-        encryptionKey: undefined
+        encryptionKey: undefined,
+        errorCategory: undefined
     });
+
+    // Helper function to categorize errors
+    function categorizeError(error: Error | unknown): ErrorCategory {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Authentication errors
+        if (errorMessage.includes('Invalid password') || 
+            errorMessage.includes('Unauthorized') ||
+            errorMessage.includes('Authentication failed')) {
+            return ErrorCategory.AUTHENTICATION;
+        }
+        
+        // Network errors
+        if (errorMessage.includes('Failed to fetch') || 
+            errorMessage.includes('Network error') ||
+            errorMessage.includes('connection') ||
+            errorMessage.includes('timeout')) {
+            return ErrorCategory.NETWORK;
+        }
+        
+        // Wallet processing errors
+        if (errorMessage.includes('rescanning') || 
+            errorMessage.includes('scanning') ||
+            errorMessage.includes('in progress')) {
+            return ErrorCategory.WALLET_PROCESSING;
+        }
+        
+        // Server errors
+        if (errorMessage.includes('Server') || 
+            errorMessage.includes('500') ||
+            errorMessage.includes('503')) {
+            return ErrorCategory.SERVER;
+        }
+        
+        return ErrorCategory.UNKNOWN;
+    }
+
+    // Helper function to get error tips based on category
+    function getErrorTips(category: ErrorCategory): string[] {
+        switch (category) {
+            case ErrorCategory.AUTHENTICATION:
+                return [
+                    'Check that you entered the correct password',
+                    'Passwords are case-sensitive',
+                    'After multiple failed attempts, you can restore your wallet using your recovery phrase'
+                ];
+            case ErrorCategory.NETWORK:
+                return [
+                    'Check your internet connection',
+                    'Make sure you are connected to the internet',
+                    'Try again in a few moments'
+                ];
+            case ErrorCategory.WALLET_PROCESSING:
+                return [
+                    'The wallet is currently being processed',
+                    'Please wait for the scanning to complete',
+                    'This may take a few minutes',
+                    'Try again once the scanning is finished'
+                ];
+            case ErrorCategory.SERVER:
+                return [
+                    'The server is experiencing issues',
+                    'Try again in a few moments',
+                    'If the problem persists, contact support'
+                ];
+            default:
+                return [
+                    'An unexpected error occurred',
+                    'Try again in a few moments',
+                    'If the problem persists, contact support'
+                ];
+        }
+    }
 
     // Add activity tracking
     let activityInterval: number;
@@ -212,7 +297,13 @@ function createWalletStore() {
     const MAX_PASSWORD_ATTEMPTS = 3;
 
     async function unlockWallet(password: string): Promise<boolean> {
-        update(state => ({ ...state, isLoading: true, error: null, serverError: undefined }));
+        update(state => ({ 
+            ...state, 
+            isLoading: true, 
+            error: null, 
+            serverError: undefined,
+            errorCategory: undefined
+        }));
         
         try {
             // Initialize core wallet first
@@ -244,11 +335,19 @@ function createWalletStore() {
                 result = await retrieveWalletData(encryptionKey);
                 
                 if (!result) {
+                    // This is clearly an authentication error
+                    const errorCategory = ErrorCategory.AUTHENTICATION;
                     update(state => ({
                         ...state,
                         isLoading: false,
                         failedAttempts: state.failedAttempts + 1,
-                        error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`
+                        error: `Invalid password. You can keep trying or restore your wallet using your recovery phrase.`,
+                        errorCategory,
+                        serverError: {
+                            message: 'Authentication Failed',
+                            tips: getErrorTips(errorCategory),
+                            category: errorCategory
+                        }
                     }));
                     return false;
                 }
@@ -276,6 +375,7 @@ function createWalletStore() {
                 isScanning: false,
                 scanProgress: undefined,
                 serverError: undefined,
+                errorCategory: undefined,
                 encryptionKey
             }));
 
@@ -287,19 +387,7 @@ function createWalletStore() {
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            const tips = errorMessage.includes('Wallet is currently rescanning')
-                ? [
-                    'The wallet is currently being processed',
-                    'Please wait for the scanning to complete',
-                    'This may take a few minutes',
-                    'Try again once the scanning is finished'
-                  ]
-                : [
-                    'Check your internet connection',
-                    'Make sure the server is running',
-                    'Try again in a few moments',
-                    'If the problem persists, contact support'
-                  ];
+            const errorCategory = categorizeError(error);
             
             update(state => ({
                 ...state,
@@ -307,9 +395,15 @@ function createWalletStore() {
                 error: errorMessage,
                 isScanning: false,
                 scanProgress: undefined,
+                // Only increment failed attempts for authentication errors
+                failedAttempts: errorCategory === ErrorCategory.AUTHENTICATION 
+                    ? state.failedAttempts + 1 
+                    : state.failedAttempts,
+                errorCategory,
                 serverError: {
                     message: 'Wallet Operation Failed',
-                    tips
+                    tips: getErrorTips(errorCategory),
+                    category: errorCategory
                 }
             }));
             return false;
