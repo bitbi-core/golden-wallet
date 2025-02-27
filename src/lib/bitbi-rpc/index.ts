@@ -268,6 +268,14 @@ class RpcClient {
     }
 
     async rpc(request: any, path = ""): Promise<any> {
+        const fullRequest = {
+            jsonrpc: "1.0",
+            ...request
+        };
+
+        const baseUrl = `${this.protocol}://${this.host}:${this.port}`;
+        const url = path ? `${baseUrl}/${path}` : baseUrl;
+
         const userInfo = `${this.user}:${this.pass}`;
         const auth = btoa(userInfo);
         console.log(`rpc request`, userInfo);
@@ -278,10 +286,9 @@ class RpcClient {
                 'Content-Type': 'application/json',
                 'Authorization': `Basic ${auth}`
             },
-            body: Body.json(request),
+            body: Body.json(fullRequest),
         };
 
-        const url = `${this.protocol}://${this.host}:${this.port}/${path}`;
         // [Log] rpc fetch options – {method: "POST", headers: {Content-Type: "application/json", Authorization: "Basic Z29sZGVuOndhbGxldA=="}, body: "{\"method\":\"getblockchaininfo\",\"params\":[],\"id\":46363}"} (index.ts, line 252)
         try {
             console.log(`rpc fetch url`, url);
@@ -289,7 +296,7 @@ class RpcClient {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
-                body: Body.json(request),
+                body: Body.json(fullRequest),
             });
             console.log(`rpc fetch response`, request.method, response)
             const data = response.data as RPCResponse;
@@ -304,15 +311,19 @@ class RpcClient {
             if (response.status === 404) {
                 throw new Error('Bitcoin JSON-RPC: Connection Rejected: 404 Not Found:' + reqBody);
             }
-            if (response.status === 500 && data === 'Work queue depth exceeded') {
-                const exceededError = new Error('Bitcoin JSON-RPC: ' + data) as RPCError;
-                exceededError.code = 429; // Too many requests
-                throw exceededError;
-            }
-            if (response.status === 500 && data.error) {
-                const err = new Error(data.error.message + ":" + reqBody) as RPCError;
-                err.code = data.error.code;
-                throw err;
+            console.log(`Raw response:`, JSON.stringify(response));
+            if (response.status === 500) {
+                if (typeof data === 'string' && data.includes('Work queue depth exceeded')) {
+                    const exceededError = new Error('Bitcoin JSON-RPC: ' + data) as RPCError;
+                    exceededError.code = 429;
+                    throw exceededError;
+                }
+                if (data?.error) {
+                    const err = new Error(`${data.error.message} (code ${data.error.code}):${reqBody}`) as RPCError;
+                    err.code = data.error.code;
+                    throw err;
+                }
+                throw new Error(`Server error: ${response.status} - ${JSON.stringify(data)}`);
             }
 
             return data.result;

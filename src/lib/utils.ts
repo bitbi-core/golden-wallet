@@ -310,6 +310,49 @@ export async function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Fetch with retry and fallback functionality
+ * @param url The URL to fetch
+ * @param options Fetch options
+ * @param retries Number of retries before using fallback
+ * @param retryDelay Delay between retries in ms
+ * @param fallbackFn Function to call if all retries fail
+ * @returns The fetch response or fallback result
+ */
+export async function fetchWithRetry<T>(
+    url: string, 
+    options: RequestInit, 
+    retries: number = 3, 
+    retryDelay: number = 1000,
+    fallbackFn?: () => Promise<T>
+): Promise<T> {
+    let lastError: Error | undefined;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error(`Fetch attempt ${attempt + 1}/${retries} failed:`, error);
+            lastError = error instanceof Error ? error : new Error(String(error));
+            
+            if (attempt < retries - 1) {
+                await sleep(retryDelay);
+            }
+        }
+    }
+    
+    // All retries failed, use fallback if provided
+    if (fallbackFn) {
+        console.log('All fetch attempts failed, using fallback');
+        return await fallbackFn();
+    }
+    
+    throw lastError || new Error('Fetch failed with unknown error');
+}
 
 function shortenNumbers(n: number) {
     const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';

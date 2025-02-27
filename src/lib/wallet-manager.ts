@@ -47,8 +47,8 @@ export class WalletManager {
             ]);
 
             return {
-                scanning: scanningInfo.scanning?.duration > 0,
-                progress: scanningInfo.scanning,
+                scanning: scanningInfo?.scanning?.duration > 0 || false,
+                progress: scanningInfo?.scanning,
                 blockchainInfo: {
                     initialBlockDownload: bcInfo.initialblockdownload,
                     progress: bcInfo.verificationprogress,
